@@ -103,10 +103,10 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: >
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest
-            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
-            -PotaFixturesDir=$PWD/fixtures
+          script: |
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures; rc=$?
+            adb logcat -d -s HagOta:V AndroidRuntime:E | tail -80
+            exit $rc
 
       - uses: actions/upload-artifact@v4
         if: always()

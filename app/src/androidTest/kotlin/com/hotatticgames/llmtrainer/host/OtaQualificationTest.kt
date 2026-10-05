@@ -133,7 +133,7 @@ class OtaQualificationTest {
             assertEquals("STAGED", check(runtime(root, f)).kind)
             val rt = runtime(root, f)
             val r = boot(rt)!!
-            assertEquals("must fall back to v2 after v$version fails", 2, r.version)
+            assertEquals("must fall back to v2 after v$version fails; history=" + rt.store.load().history.takeLast(10).joinToString(" | ") { it.event + ":" + it.detail }, 2, r.version)
             assertEquals(a.slotId, r.slotId)
             assertTrue(rt.store.load().quarantined.keys.any { it.startsWith("v$version-") })
         }
