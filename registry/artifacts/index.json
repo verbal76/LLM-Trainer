@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "refreshed_at": "2026-10-05T17:43:01Z",
+  "ok": true,
+  "errors": [],
+  "results": [
+    {
+      "id": "smollm2-135m-instruct-f16",
+      "outcome": "refreshed",
+      "file": "SmolLM2-135M-Instruct-f16.gguf",
+      "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-135m-instruct-f32",
+      "outcome": "not_published",
+      "file": null,
+      "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-135m-instruct-q8_0",
+      "outcome": "refreshed",
+      "file": "SmolLM2-135M-Instruct-Q8_0.gguf",
+      "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-135m-instruct-q4_k_m",
+      "outcome": "refreshed",
+      "file": "SmolLM2-135M-Instruct-Q4_K_M.gguf",
+      "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-360m-instruct-q8_0",
+      "outcome": "refreshed",
+      "file": "smollm2-360m-instruct-q8_0.gguf",
+      "revision": "593b5a2e04c8f3e4ee880263f93e0bd2901ad47f",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-0.6b-q8_0",
+      "outcome": "refreshed",
+      "file": "Qwen3-0.6B-Q8_0.gguf",
+      "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-1.7b-q8_0",
+      "outcome": "refreshed",
+      "file": "Qwen3-1.7B-Q8_0.gguf",
+      "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-4b-q4_k_m",
+      "outcome": "refreshed",
+      "file": "Qwen3-4B-Q4_K_M.gguf",
+      "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-4b-q8_0",
+      "outcome": "refreshed",
+      "file": "Qwen3-4B-Q8_0.gguf",
+      "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-8b-q4_k_m",
+      "outcome": "refreshed",
+      "file": "Qwen3-8B-Q4_K_M.gguf",
+      "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-8b-q8_0",
+      "outcome": "refreshed",
+      "file": "Qwen3-8B-Q8_0.gguf",
+      "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-360m-instruct-f16",
+      "outcome": "refreshed",
+      "file": "SmolLM2-360M-Instruct-f16.gguf",
+      "revision": "7be6f65f1db715fe5dc5a4634c0d459b4eed42ec",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-360m-instruct-f32",
+      "outcome": "not_published",
+      "file": null,
+      "revision": "7be6f65f1db715fe5dc5a4634c0d459b4eed42ec",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "smollm2-360m-instruct-q4_k_m",
+      "outcome": "refreshed",
+      "file": "SmolLM2-360M-Instruct-Q4_K_M.gguf",
+      "revision": "7be6f65f1db715fe5dc5a4634c0d459b4eed42ec",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-0.6b-f16",
+      "outcome": "not_published",
+      "file": null,
+      "revision": "60b85c0e3d8fe0f6474f406922a26d12aca4550d",
+      "license_state": "UNVERIFIED"
+    },
+    {
+      "id": "qwen3-0.6b-bf16",
+      "outcome": "refreshed",
+      "file": "Qwen_Qwen3-0.6B-bf16.gguf",
+      "revision": "60b85c0e3d8fe0f6474f406922a26d12aca4550d",
+      "license_state": "UNVERIFIED"
+    }
+  ]
+}

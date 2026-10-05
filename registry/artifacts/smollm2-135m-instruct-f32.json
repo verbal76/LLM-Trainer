@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "artifact_id": "smollm2-135m-instruct-f32",
-  "refresh_state": "unrefreshed",
-  "refreshed_at": null,
+  "refresh_state": "refreshed",
+  "refreshed_at": "2026-10-05T17:43:01Z",
   "optional": true,
-  "published": null,
+  "published": false,
   "family": "SmolLM2",
   "base_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
   "source": {
@@ -12,7 +12,7 @@
     "repo_url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF",
     "file": null,
     "file_glob": "*f32.gguf",
-    "revision": null,
+    "revision": "09816acd5d99df7be770d85ea30822623dab342c",
     "download_url": null
   },
   "format": "gguf",
@@ -66,6 +66,6 @@
     "evidence": null
   },
   "notes": [
-    "UNREFRESHED placeholder: no hash, size or revision is known. The app treats this artifact as NOT downloadable."
+    "No published file matches '*f32.gguf' at revision 09816acd5d99df7be770d85ea30822623dab342c; not downloadable."
   ]
 }

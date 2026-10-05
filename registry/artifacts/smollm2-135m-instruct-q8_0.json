@@ -1,48 +1,48 @@
 {
   "schema_version": 1,
   "artifact_id": "smollm2-135m-instruct-q8_0",
-  "refresh_state": "unrefreshed",
-  "refreshed_at": null,
+  "refresh_state": "refreshed",
+  "refreshed_at": "2026-10-05T17:43:01Z",
   "optional": false,
-  "published": null,
+  "published": true,
   "family": "SmolLM2",
   "base_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
   "source": {
     "repo": "bartowski/SmolLM2-135M-Instruct-GGUF",
     "repo_url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF",
-    "file": null,
+    "file": "SmolLM2-135M-Instruct-Q8_0.gguf",
     "file_glob": "*q8_0.gguf",
-    "revision": null,
-    "download_url": null
+    "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+    "download_url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q8_0.gguf"
   },
   "format": "gguf",
   "quantization": "Q8_0",
   "precision": "quantized",
-  "size_bytes": null,
-  "sha256": null,
+  "size_bytes": 144811360,
+  "sha256": "sha256:5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83",
   "parameter_count_nominal_b": 0.135,
-  "parameter_count": null,
+  "parameter_count": 134515008,
   "architecture": {
-    "name": null,
-    "layers": null,
-    "kv_heads": null,
-    "heads": null,
-    "head_dim": null,
-    "embd": null,
-    "ffn": null,
-    "ctx_train": null,
-    "vocab": null
+    "layers": 30,
+    "kv_heads": 3,
+    "heads": 9,
+    "head_dim": 64,
+    "embd": 576,
+    "ffn": 1536,
+    "ctx_train": 8192,
+    "vocab": 49152,
+    "name": "llama"
   },
-  "chat_template_present": null,
-  "chat_template_sha256": null,
+  "chat_template_present": true,
+  "chat_template_sha256": "872be49dbb638044ad01b60388f48d469ff2980e5f0dccdc22ec907db54d0788",
   "runtime_compat": {
     "llama.cpp": {
-      "architecture": null,
-      "supported": "unverified",
+      "architecture": "llama",
+      "supported": "yes",
       "min_build": null
     },
     "hag-engine": {
-      "architecture": null,
+      "architecture": "llama",
       "supported": "unverified",
       "min_build": null
     }
@@ -61,11 +61,24 @@
     "expected_spdx": "Apache-2.0",
     "spdx_id": null,
     "reasons": [
-      "unrefreshed: the catalog-refresh CI job has not yet read the license text or the model card"
+      "no license text could be fetched from any configured URL"
     ],
-    "evidence": null
+    "evidence": {
+      "expected_spdx": "Apache-2.0",
+      "license_text_url": null,
+      "license_text_sha256": null,
+      "license_text_bytes": null,
+      "canonical_spdx": null,
+      "canonical_sha256": null,
+      "canonical_source_url": null,
+      "match": "unavailable",
+      "model_card_licenses": {
+        "bartowski/SmolLM2-135M-Instruct-GGUF": "apache-2.0",
+        "HuggingFaceTB/SmolLM2-135M-Instruct": "apache-2.0"
+      },
+      "model_card_agrees": false,
+      "fetched_at": "2026-10-05T17:43:01Z"
+    }
   },
-  "notes": [
-    "UNREFRESHED placeholder: no hash, size or revision is known. The app treats this artifact as NOT downloadable."
-  ]
+  "notes": []
 }
