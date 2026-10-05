@@ -167,7 +167,7 @@ jobs:
       - name: Build qualification fixtures
         run: tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
       - name: Pre-install Android Emulator (retrying)
-        run: bash tools/ci/preinstall-emulator.sh
+        run: bash tools/ci/preinstall-emulator.sh "system-images;android-${{ steps.img.outputs.api }};${{ matrix.target }};x86_64"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -317,7 +317,7 @@ jobs:
           gh release download v1 -p 'LLM-Trainer-v1.apk' -D prev
           ls -l prev cand
       - name: Pre-install Android Emulator (retrying)
-        run: bash tools/ci/preinstall-emulator.sh
+        run: bash tools/ci/preinstall-emulator.sh "system-images;android-34;google_apis;x86_64"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

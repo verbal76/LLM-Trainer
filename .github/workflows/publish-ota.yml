@@ -127,7 +127,7 @@ jobs:
           cd ..
           ./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/pub/b$BV.hagb --pub $PWD/ota/keys/prod.pub --key-id k1 --host-api $HOST_API_MIN --native-abi $NATIVE_ABI --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --sdk 37 --bundle-id llmtrainer-main --channel stable"
       - name: Pre-install Android Emulator (retrying)
-        run: bash tools/ci/preinstall-emulator.sh
+        run: bash tools/ci/preinstall-emulator.sh "system-images;android-34;google_apis;x86_64"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

@@ -5,15 +5,25 @@ set -u
 SDKM="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
 [ -x "$SDKM" ] || SDKM="$(command -v sdkmanager || true)"
 [ -n "$SDKM" ] || { echo "sdkmanager not found; leaving it to android-emulator-runner"; exit 0; }
-for attempt in 1 2 3 4; do
-  yes | "$SDKM" --licenses >/dev/null 2>&1
-  out=$("$SDKM" --install emulator --channel=0 2>&1)
-  if ! echo "$out" | grep -qi "error on zipfile\|unknown archive\|failed"; then
-    if [ -x "${ANDROID_HOME:-/usr/local/lib/android/sdk}/emulator/emulator" ]; then echo "emulator installed (attempt $attempt)"; exit 0; fi
-  fi
-  echo "emulator install attempt $attempt failed: $(echo "$out" | tail -n 2)"
-  rm -rf "${ANDROID_HOME:-/usr/local/lib/android/sdk}/emulator"
-  sleep $((attempt * 5))
+# usage: preinstall-emulator.sh [system-image-package ...]   e.g. 'system-images;android-36;google_apis_ps16k;x86_64'
+ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+install_pkg() { # <package> <dir that must exist afterwards>
+  local pkg="$1" dir="$2" out
+  for attempt in 1 2 3 4; do
+    yes | "$SDKM" --licenses >/dev/null 2>&1
+    out=$("$SDKM" --install "$pkg" --channel=0 2>&1)
+    if ! echo "$out" | grep -qi "error on zipfile\|unknown archive\|failed" && [ -e "$dir" ]; then
+      echo "$pkg installed (attempt $attempt)"; return 0
+    fi
+    echo "$pkg install attempt $attempt failed: $(echo "$out" | tail -n 2)"
+    rm -rf "$dir"
+    sleep $((attempt * 5))
+  done
+  return 1
+}
+install_pkg emulator "$ROOT/emulator/emulator" || true
+for img in "$@"; do
+  # 'system-images;android-36;google_apis;x86_64' -> $ROOT/system-images/android-36/google_apis/x86_64
+  install_pkg "$img" "$ROOT/$(echo "$img" | tr ';' '/')" || true
 done
-echo "emulator pre-install did not succeed; android-emulator-runner will try once more"
 exit 0
