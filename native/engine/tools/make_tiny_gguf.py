@@ -71,6 +71,9 @@ def main():
     ap.add_argument("--vocab-file", default=None)
     ap.add_argument("--tied", action="store_true", help="no separate output.weight (output tied to token_embd)")
     ap.add_argument("--dtype", default="f32", choices=["f32", "f16"])
+    ap.add_argument("--quant", default=None, choices=["q8_0", "q4_0", "q4_1", "q5_0"],
+                    help="quantize 2-D weight matrices (norms stay F32), like llama-quantize would")
+    ap.add_argument("--from-model", default=None, help="take all tensors from this GGUF instead of random init (same shape flags needed only for metadata)")
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--init-std", type=float, default=0.02)
     a = ap.parse_args()
@@ -99,7 +102,11 @@ def main():
     w.add_head_count_kv(HKV)
     w.add_rope_dimension_count(d // H)
     w.add_layer_norm_rms_eps(1e-5)
-    w.add_file_type(gguf.LlamaFileType.ALL_F32 if a.dtype == "f32" else gguf.LlamaFileType.MOSTLY_F16)
+    ft = gguf.LlamaFileType.ALL_F32 if a.dtype == "f32" else gguf.LlamaFileType.MOSTLY_F16
+    if a.quant:
+        ft = {"q8_0": gguf.LlamaFileType.MOSTLY_Q8_0, "q4_0": gguf.LlamaFileType.MOSTLY_Q4_0,
+              "q4_1": gguf.LlamaFileType.MOSTLY_Q4_1, "q5_0": gguf.LlamaFileType.MOSTLY_Q5_0}[a.quant]
+    w.add_file_type(ft)
     w.add_vocab_size(V)
     w.add_tokenizer_model("llama")
     w.add_tokenizer_pre("default")
@@ -114,28 +121,43 @@ def main():
     w.add_chat_template("{% for m in messages %}<|im_start|>{{ m['role'] }}\n{{ m['content'] }}<|im_end|>\n{% endfor %}"
                         "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}")
 
+    qt = {"q8_0": gguf.GGMLQuantizationType.Q8_0, "q4_0": gguf.GGMLQuantizationType.Q4_0,
+          "q4_1": gguf.GGMLQuantizationType.Q4_1, "q5_0": gguf.GGMLQuantizationType.Q5_0}.get(a.quant)
+    src = None
+    if a.from_model:
+        rd = gguf.GGUFReader(a.from_model)
+        src = {t.name: np.array(t.data, dtype=np.float32) for t in rd.tensors}
+
     def mat(*shape):
         return (rng.standard_normal(shape) * a.init_std).astype(dt)
+
+    def add(name, arr):
+        if src is not None:
+            arr = src[name]
+        if qt is not None and arr.ndim == 2:
+            w.add_tensor(name, gguf.quants.quantize(arr.astype(np.float32), qt), raw_dtype=qt)
+        else:
+            w.add_tensor(name, arr)
 
     def ones(n):
         return np.ones(n, dtype=np.float32)
 
-    w.add_tensor("token_embd.weight", mat(V, d))
-    w.add_tensor("output_norm.weight", ones(d))
+    add("token_embd.weight", mat(V, d))
+    add("output_norm.weight", ones(d))
     if not a.tied:
-        w.add_tensor("output.weight", mat(V, d))
+        add("output.weight", mat(V, d))
     dk = d // H
     for i in range(L):
         p = "blk.%d." % i
-        w.add_tensor(p + "attn_norm.weight", ones(d))
-        w.add_tensor(p + "attn_q.weight", mat(H * dk, d))
-        w.add_tensor(p + "attn_k.weight", mat(HKV * dk, d))
-        w.add_tensor(p + "attn_v.weight", mat(HKV * dk, d))
-        w.add_tensor(p + "attn_output.weight", mat(d, H * dk))
-        w.add_tensor(p + "ffn_norm.weight", ones(d))
-        w.add_tensor(p + "ffn_gate.weight", mat(FF, d))
-        w.add_tensor(p + "ffn_up.weight", mat(FF, d))
-        w.add_tensor(p + "ffn_down.weight", mat(d, FF))
+        add(p + "attn_norm.weight", ones(d))
+        add(p + "attn_q.weight", mat(H * dk, d))
+        add(p + "attn_k.weight", mat(HKV * dk, d))
+        add(p + "attn_v.weight", mat(HKV * dk, d))
+        add(p + "attn_output.weight", mat(d, H * dk))
+        add(p + "ffn_norm.weight", ones(d))
+        add(p + "ffn_gate.weight", mat(FF, d))
+        add(p + "ffn_up.weight", mat(FF, d))
+        add(p + "ffn_down.weight", mat(d, FF))
     w.write_header_to_file()
     w.write_kv_data_to_file()
     w.write_tensors_to_file()

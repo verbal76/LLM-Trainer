@@ -133,7 +133,7 @@
              ggml_opt_dataset_t               dataset,
              ggml_opt_result_t                result,
 --- a/src/llama-context.cpp	2022-11-09 12:37:21.000000000 +0000
-+++ b/src/llama-context.cpp	2026-10-05 13:05:00.658678899 +0000
++++ b/src/llama-context.cpp	2026-10-05 13:19:37.208029271 +0000
 @@ -4,6 +4,8 @@
  #include "llama-arch.h"
  #include "llama-graph.h"
@@ -153,10 +153,10 @@
 +    if (n_ubatch == model->hparams.n_ctx_train) {
          cparams.training = true;
 +        if (auto * kv = dynamic_cast<llama_kv_cache *>(memory.get())) {
-+            kv->set_n_pad_min(1);
++            kv->set_train_n_kv(model->hparams.n_ctx_train);
 +        } else if (auto * kvi = dynamic_cast<llama_kv_cache_iswa *>(memory.get())) {
-+            kvi->get_base()->set_n_pad_min(1);
-+            kvi->get_swa()->set_n_pad_min(1);
++            kvi->get_base()->set_train_n_kv(model->hparams.n_ctx_train);
++            kvi->get_swa()->set_train_n_kv(model->hparams.n_ctx_train);
 +        }
      } else {
 -        LLAMA_LOG_WARN("%s: n_ubatch (%u) != n_ctx (%u), the K and V projections will not receive gradients\n", __func__, n_ubatch, cparams.n_ctx);
@@ -173,7 +173,7 @@
      opt_params.get_opt_pars    = lopt_params.get_opt_pars;
      opt_params.get_opt_pars_ud = lopt_params.get_opt_pars_ud;
      opt_params.optimizer       = lopt_params.optimizer_type;
-@@ -3699,6 +3709,96 @@
+@@ -3699,6 +3709,107 @@
      }
  }
  
@@ -260,6 +260,17 @@
 +                ggml_backend_tensor_set(lt, &onef, (i*lt->ne[0] + labels_sparse[i])*sizeof(float), sizeof(float));
 +            }
 +        }
++        // opt_epoch_iter never applies the context's thread settings: ggml_opt_eval would run with the backend default
++        if (backend_cpu != nullptr) {
++            auto * reg = ggml_backend_dev_backend_reg(ggml_backend_get_device(backend_cpu));
++            auto * set_threadpool_fn = (decltype(ggml_backend_cpu_set_threadpool) *) ggml_backend_reg_get_proc_address(reg, "ggml_backend_cpu_set_threadpool");
++            if (set_threadpool_fn) {
++                set_threadpool_fn(backend_cpu, threadpool_batch);
++            }
++        }
++        for (const auto & set_n_threads_fn : set_n_threads_fns) {
++            set_n_threads_fn.second(set_n_threads_fn.first, cparams.n_threads_batch);
++        }
 +        ggml_opt_eval(opt_ctx, result);
 +        ggml_free(ctx_compute_opt);
 +    } while (false);
@@ -270,7 +281,7 @@
  void llama_context::opt_epoch(
          ggml_opt_dataset_t        dataset,
          ggml_opt_result_t         result_train,
-@@ -4474,6 +4574,14 @@
+@@ -4474,6 +4585,14 @@
          callback_eval);
  }
  
@@ -315,34 +326,45 @@
      return model->hparams.n_expert;
  }
 --- a/src/llama-kv-cache.h	2022-11-09 12:37:21.000000000 +0000
-+++ b/src/llama-kv-cache.h	2026-10-05 13:04:53.434549108 +0000
-@@ -19,6 +19,8 @@
++++ b/src/llama-kv-cache.h	2026-10-05 13:14:25.351096002 +0000
+@@ -19,6 +19,9 @@
  
  class llama_kv_cache : public llama_memory_i {
  public:
-+    void set_n_pad_min(uint32_t p) { n_pad_min = p; } // HAG patch
++    void set_train_n_kv(uint32_t n) { train_n_kv = n; } // HAG patch
++    uint32_t get_train_n_kv() const { return train_n_kv; }
 +
      struct stream_copy_info {
          bool empty() const {
              assert(ssrc.size() == sdst.size());
-@@ -274,6 +276,9 @@
+@@ -274,6 +277,9 @@
      // required padding
      const uint32_t n_pad = 1;
  
-+    // HAG patch: minimum padding of the n_kv reported to graphs (default 256); training sets it to 1
-+    uint32_t n_pad_min = 256;
++    // HAG patch: when non-zero (training), graphs see exactly this n_kv instead of the padded/full cache size
++    uint32_t train_n_kv = 0;
 +
      // SWA
      const uint32_t n_swa = 0;
  
 --- a/src/llama-kv-cache.cpp	2022-11-09 12:37:21.000000000 +0000
-+++ b/src/llama-kv-cache.cpp	2026-10-05 13:04:53.435460581 +0000
-@@ -1262,7 +1262,7 @@
++++ b/src/llama-kv-cache.cpp	2026-10-05 13:14:25.353546426 +0000
+@@ -1262,6 +1262,9 @@
  
      // pad the n_kv value so that the graph remains constant across batches and can be reused
      // note: this also helps some backends with performance (f.ex https://github.com/ggml-org/llama.cpp/pull/16812#issuecomment-3455112220)
--    const uint32_t n_pad_cur = std::max(n_pad, 256u);
-+    const uint32_t n_pad_cur = std::max(n_pad, n_pad_min);
++    if (train_n_kv) { // HAG patch
++        return train_n_kv;
++    }
+     const uint32_t n_pad_cur = std::max(n_pad, 256u);
  
      for (uint32_t s = 0; s < sinfo.n_stream(); ++s) {
-         const auto & cells = v_cells[sinfo.strm[s]];
+@@ -2788,7 +2791,7 @@
+ 
+ llama_kv_cache_context::llama_kv_cache_context(
+         llama_kv_cache * kv) : status(LLAMA_MEMORY_STATUS_SUCCESS), kv(kv) {
+-    n_kv = kv->get_size();
++    n_kv = kv->get_train_n_kv() ? kv->get_train_n_kv() : kv->get_size(); // HAG patch
+ 
+     const uint32_t n_stream = kv->get_n_stream();
+ 

@@ -566,8 +566,6 @@ static bool param_filter(const ggml_tensor * t, void * ud) {
     return ((std::unordered_set<std::string> *)ud)->count(t->name) != 0;
 }
 
-static std::string hexprefix(const std::string & s, size_t n) { return s.substr(0, n); }
-
 static std::string base_sha_cached(const char * base_path, const std::string & work_dir, bool (*cancel)(void *), void * ud, bool & cancelled) {
     int64_t sz = file_size(base_path);
     int64_t mt = 0;
@@ -733,8 +731,6 @@ hag_status hag_train_estimate(const char * base_gguf_path, const hag_train_param
 
 // ---- public: train ------------------------------------------------------------------------------------------------------
 namespace {
-
-static const char * kPhaseTrain = "train";
 
 struct Loaded {
     llama_model * model = nullptr;
@@ -1243,11 +1239,71 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
         std::string e = patch_read_header(out_patch, ph);
         if (!e.empty()) return make_status(HAG_ERR_INTERNAL, "written patch failed validation: %s", e.c_str());
     }
+    // Best effort: what does deploying in the BASE tensor type cost? (quantized bases only; the patch is already committed)
+    double vl_deploy = vl;
+    if (plan.base_quantized && !ds.val_win.empty()) {
+        try {
+            llama_context_params cp = llama_context_default_params();
+            cp.n_ctx = (uint32_t)n_ctx; cp.n_batch = (uint32_t)n_ctx; cp.n_ubatch = (uint32_t)n_ctx;
+            cp.n_threads = c.threads; cp.n_threads_batch = c.threads; cp.no_perf = true;
+            llama_context * ic = llama_init_from_model(L.model, cp);
+            if (ic) {
+                const llama_vocab * vv = llama_model_get_vocab(L.model);
+                const int nv = llama_vocab_n_tokens(vv);
+                auto score_val = [&]() -> double {
+                    double sum = 0; int64_t cnt = 0;
+                    for (int64_t start : ds.val_win) {
+                        llama_memory_clear(llama_get_memory(ic), true);
+                        llama_batch bt = llama_batch_init(n_ctx, 0, 1);
+                        bt.n_tokens = n_ctx;
+                        for (int i = 0; i < n_ctx; i++) { bt.token[i] = ds.val[(size_t)start + i]; bt.pos[i] = i; bt.n_seq_id[i] = 1; bt.seq_id[i][0] = 0; bt.logits[i] = 1; }
+                        int rc = llama_decode(ic, bt);
+                        llama_batch_free(bt);
+                        if (rc != 0) return kNaN;
+                        for (int i = 0; i < n_ctx; i++) {
+                            const float * lg = llama_get_logits_ith(ic, i);
+                            float mx = lg[0];
+                            for (int k = 1; k < nv; k++) mx = std::max(mx, lg[k]);
+                            double z = 0;
+                            for (int k = 0; k < nv; k++) z += std::exp((double)lg[k] - mx);
+                            sum += -((double)lg[ds.val[(size_t)start + i + 1]] - mx - std::log(z));
+                            cnt++;
+                        }
+                    }
+                    return sum / (double)cnt;
+                };
+                double nll_f32 = score_val();
+                std::vector<float> q32, dq;
+                std::vector<uint8_t> qq;
+                for (const TInfo & t : trainable) {
+                    if (t.type == GGML_TYPE_F32) continue;
+                    ggml_tensor * mt = llama_model_tensor_by_name(L.model, t.name.c_str());
+                    q32.resize((size_t)t.nelem);
+                    ggml_backend_tensor_get(mt, q32.data(), 0, (size_t)t.nelem * 4);
+                    qq.resize(t.nbytes);
+                    const int64_t nrows = t.ne[1] * t.ne[2] * t.ne[3];
+                    if (convert_rows_from_f32(t.type, q32.data(), qq.data(), nrows, t.ne[0]) != t.nbytes) continue;
+                    dq.resize((size_t)t.nelem);
+                    const ggml_type_traits * tr = ggml_get_type_traits(t.type);
+                    const size_t rs = ggml_row_size(t.type, t.ne[0]);
+                    for (int64_t r = 0; r < nrows; r++) tr->to_float(qq.data() + rs * (size_t)r, dq.data() + (size_t)(r * t.ne[0]), t.ne[0]);
+                    ggml_backend_tensor_set(mt, dq.data(), 0, (size_t)t.nelem * 4);
+                }
+                double nll_rq = score_val();
+                llama_free(ic);
+                vl_deploy = nll_rq;
+                X.log.line("deploy-type check on held-out windows: val NLL f32 working weights %.6f -> %s patch weights %.6f", nll_f32, b.file_type.c_str(), nll_rq);
+                Json rj;
+                rj.begin_obj().kv("val_nll_f32_weights", nll_f32).kv("val_nll_deployed_type", nll_rq).kv("base_file_type", b.file_type).end_obj();
+                AtomicWriter rw(join_path(X.work_dir, "requant_eval.json"));
+                if (rw.ok()) { rw.write(rj.str().data(), rj.str().size()); rw.commit(); }
+            }
+        } catch (...) { X.log.line("deploy-type check failed (ignored)"); }
+    }
     for (auto & n : list_dir(X.work_dir)) {
         if ((n.compare(0, 5, "ckpt-") == 0) || n == "ckpt.manifest" || n.compare(0, 11, "train_base_") == 0) remove_file(join_path(X.work_dir, n));
     }
-    X.hk.emit(HAG_PHASE_DONE, c.epochs, (int)step, (int64_t)step * accum, tl, vl);
-    (void)kPhaseTrain;
+    X.hk.emit(HAG_PHASE_DONE, c.epochs, (int)step, (int64_t)step * accum, tl, vl_deploy);
     return ok_status();
     HAG_CATCH_STATUS
 }

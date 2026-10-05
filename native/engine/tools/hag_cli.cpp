@@ -20,6 +20,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <thread>
+#include <atomic>
 #include <map>
 #include <sstream>
 #include <string>
@@ -85,6 +87,32 @@ static bool valid_utf8(const std::string & s) {
     }
     return true;
 }
+
+static double peak_rss_mb() {
+    FILE * f = fopen("/proc/self/status", "r");
+    if (!f) return 0;
+    char line[256];
+    double mb = 0;
+    while (fgets(line, sizeof(line), f)) {
+        unsigned long long kb;
+        if (sscanf(line, "VmHWM: %llu kB", &kb) == 1) { mb = kb / 1024.0; break; }
+    }
+    fclose(f);
+    return mb;
+}
+
+// cancels `s` from another thread after a delay (exercises the async-safe hag_cancel)
+struct DelayedCancel {
+    std::thread th;
+    std::atomic<bool> stop{false};
+    void start(hag_session * s, int ms) {
+        th = std::thread([this, s, ms] {
+            for (int t = 0; t < ms && !stop.load(); t++) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            if (!stop.load()) hag_cancel(s);
+        });
+    }
+    ~DelayedCancel() { stop = true; if (th.joinable()) th.join(); }
+};
 
 struct GenCtx {
     std::string text;
@@ -183,7 +211,7 @@ int main(int argc, char ** argv) {
         st = hag_train(a.pos.c_str(), texts.data(), (int)texts.size(), &p, a.get("work").c_str(), a.get("out").c_str(), on_event, &ui);
         double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         if (st.code) return fail(st);
-        printf("{\"ok\":true,\"wall_s\":%.3f,\"steps\":%d}\n", secs, ui.steps_seen);
+        printf("{\"ok\":true,\"wall_s\":%.3f,\"steps\":%d,\"peak_rss_mb\":%.1f}\n", secs, ui.steps_seen, peak_rss_mb());
         return 0;
     }
 
@@ -225,8 +253,11 @@ int main(int argc, char ** argv) {
         std::string text = a.get("text");
         if (a.has("file")) { std::ifstream f(a.get("file")); std::stringstream ss; ss << f.rdbuf(); text = ss.str(); }
         double nll = 0; int n = 0;
+        DelayedCancel dc;
+        if (a.has("cancel-after-ms")) dc.start(s, (int)a.num("cancel-after-ms", 0));
+        auto t0 = std::chrono::steady_clock::now();
         st = hag_score(s, text.c_str(), &nll, &n);
-        if (st.code) rc = fail(st);
+        if (st.code) { fprintf(stderr, "score took %.3f s\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()); rc = fail(st); }
         else printf("{\"ok\":true,\"mean_nll\":%.9g,\"n_tokens\":%d,\"patched\":%s}\n", nll, n, a.has("patch") ? "true" : "false");
     } else if (a.cmd == "generate") {
         std::string prompt = a.get("prompt");
@@ -255,6 +286,8 @@ int main(int argc, char ** argv) {
             g.cancel_after = (int)a.num("cancel-after", 0);
             hag_gen_stats stats;
             memset(&stats, 0, sizeof(stats));
+            DelayedCancel dc;
+            if (a.has("cancel-after-ms")) dc.start(s, (int)a.num("cancel-after-ms", 0));
             st = hag_generate(s, prompt.c_str(), &sampler, on_piece, &g, &stats);
             if (st.code && st.code != HAG_ERR_CANCELLED) { rc = fail(st); goto done; }
             printf("{\"ok\":true,\"text\":\"%s\",\"pieces\":%d,\"utf8_ok\":%s,\"n_prompt\":%d,\"n_generated\":%d,\"stop_reason\":%d,"
