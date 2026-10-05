@@ -192,6 +192,7 @@ hag_status hag_model_load(const char * gguf_path, int use_mmap, hag_progress_fn 
 
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = 0;
+    { const char * nr = getenv("HAG_NO_REPACK"); if (nr && nr[0] == '1') mp.use_extra_bufts = false; }  // diagnostics: plain weight layout
     mp.load_mode = use_mmap ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
     LoadCtx lc{progress, user, false};
     mp.progress_callback = load_progress;

@@ -74,8 +74,9 @@ def main():
     cfg = {k: getattr(a, k) for k in ("mode", "layers", "lora_rank", "epochs", "lr", "ctx", "n_train", "doc_facts", "val_fraction")}
     M = {"label": a.label, "cell": cfg, "model": os.path.basename(a.model), "model_bytes": os.path.getsize(a.model)}
 
-    def run(*args, check=True, timeout=7200):
-        p = subprocess.run([a.cli] + [str(x) for x in args], capture_output=True, text=True, timeout=timeout)
+    def run(*args, check=True, timeout=7200, env=None):
+        p = subprocess.run([a.cli] + [str(x) for x in args], capture_output=True, text=True, timeout=timeout,
+                           env=dict(os.environ, **env) if env else None)
         js = None
         for line in reversed(p.stdout.strip().splitlines()):
             try:
@@ -195,7 +196,25 @@ def main():
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "apply_patch.py"), a.model, out, merged], capture_output=True, text=True)
         gate(r.returncode == 0, "reference consumer merges base+patch")
         if r.returncode == 0:
-            gate(abs(run("score", merged, "--file", val_f, *thr)[1]["mean_nll"] - spec["val"]) < 1e-4, "merged GGUF scores identically to base+patch")
+            def sc(model, env=None, patch=None):
+                return run("score", model, "--file", val_f, *thr, *(["--patch", patch] if patch else []), env=env)[1]["mean_nll"]
+            quantized = str(info["model"]["file_type"]) not in ("0", "1", "32")     # F32 / F16 / BF16 are exact
+            if not quantized:
+                gate(sc(merged) == sc(a.model, patch=out), "F32/F16 base: merged GGUF scores EXACTLY like base+patch")
+            else:
+                # (1) same bytes => same score when every weight uses the plain layout (kernel choice removed): exact
+                plain = {"HAG_NO_REPACK": "1"}
+                e1, e2 = sc(merged, plain), sc(a.model, plain, out)
+                gate(e1 == e2, "quantized base, plain weight layout: merged == base+patch EXACTLY (%.9f vs %.9f)" % (e1, e2))
+                # (2) default layout: the engine keeps the base weights in the repacked layout and runs patched tensors through the
+                #     generic kernel, the merged file repacks everything. Both read identical bytes; the difference is kernel
+                #     arithmetic (activation Q8 quantization / summation order). Its size is bounded by the noise floor measured on
+                #     the UNPATCHED base with the same two kernels: bound = 2 x |NLL(base, repack) - NLL(base, plain)| + 1e-6.
+                floor = abs(sc(a.model) - sc(a.model, plain))
+                d = abs(sc(merged) - sc(a.model, patch=out))
+                bound = 2 * floor + 1e-6
+                M["merge_check"] = {"kernel_noise_floor": floor, "diff": d, "bound": bound}
+                gate(d <= bound, "quantized base, default layout: |merged - base+patch| = %.2e <= 2 x kernel-noise floor %.2e + 1e-6 = %.2e" % (d, floor, bound))
             os.remove(merged)
 
     if a.resume_check:

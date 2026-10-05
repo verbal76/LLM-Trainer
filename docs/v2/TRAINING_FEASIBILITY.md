@@ -153,3 +153,28 @@ Locally the harness was exercised end to end on the 2.5M-param stand-in model (m
 are not comparable). The default in `real_model_check.py` (LoRA r8, lr 5e-4, 5 epochs) is an a-priori choice and must be replaced
 by the validation-selected cell from the first grid run; until then no claim of "better on unseen material" is made for a real
 model beyond what the first run showed (it was worse).
+
+## Quantized base: "merged GGUF scores identically to base+patch" (CI cell stories15m-q-last3)
+**Finding: not a data bug; a kernel-numerics effect, now gated with a derived bound.** Measured on a Q4_0 base (last 2 layers tuned):
+* All 19 patch tensors are byte-identical to the same tensors in the independently merged GGUF (so the write-back path and the Python
+  reference consumer agree exactly); all 19 differ from the base (max |dequant(patch) - dequant(base)| = 0.377).
+* With the weight *layout* forced to plain (`HAG_NO_REPACK=1`, a diagnostic switch in `hag_model_load`) merged and base+patch score
+  **exactly** the same (2.31668082 vs 2.31668082; and 2.170176960 vs 2.170176960 in the cell run).
+* With the default layout they differ by 2.7e-6 nats (cell run: 3.7e-5). Cause: the CPU backend repacks Q4_0 weights into a
+  SIMD-friendly layout at load; `hag_model_apply_patch` swaps the patched tensors into plain-layout buffers (the base file is
+  read-only), so patched tensors run through the generic dot-product kernel while everything else runs through the repacked kernel; the
+  merged file repacks everything. Both kernels quantize the activations to Q8_0 (relative error <= 2^-8 per element) and sum in a
+  different order, so logits differ at the 1e-3 relative level per operation, averaging down to ~1e-5 nats in the mean NLL.
+* The same kernel noise exists without any patch: `NLL(base, repack) - NLL(base, plain)` = 1.7e-5 (cell: 7.6e-5).
+
+Gate (replaces `|diff| < 1e-4` / equality for quantized bases; F32/F16/BF16 bases keep **exact** equality):
+1. plain layout on both sides: `merged == base+patch` exactly (proves identical weights);
+2. default layout: `|merged - base+patch| <= 2 x |NLL(base, repack) - NLL(base, plain)| + 1e-6`, i.e. twice the kernel noise floor measured
+   on the *unpatched* base with the same two kernels (independent of the result being judged). Measured margin: 2.7e-6 vs bound 3.6e-5
+   (13x) in the test, 3.7e-5 vs 3.0e-4 (8x) in the cell.
+Consequence for ARM: Q4_0 repack kernels (i8mm/dotprod) have the same property, and **patched tensors lose the repacked fast path**
+(slower matmul for those tensors only; LoRA patches are unaffected because adapters add small separate matmuls). Not measured on ARM.
+
+Android consistency: `HostTrainingBackend`/`HostEngineBackends.loadModel(path, patchPath)` and the runtime JNI call the same
+`hag_model_load` (mmap) + `hag_model_apply_patch`, so the Android path has identical semantics; no Android test compares against a
+merged file (they assert improvement via `score`), so nothing there needs a tolerance change.

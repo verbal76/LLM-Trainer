@@ -540,6 +540,23 @@ def test_q4_base_training_reports_requantization_cost(quant_bases, corpus):
     record("q4_requant_val_nll", rq)
     assert rq["val_nll_deployed_type"] > 0 and rq["val_nll_f32_weights"] > 0
     assert any(t["type"] == "q4_0" for t in cli("patch-info", out)[1]["tensors"])
+    # independent consumer on a quantized base: identical bytes; scores equal exactly when the kernel choice is removed and
+    # within the measured kernel-noise floor otherwise (see docs/v2/TRAINING_FEASIBILITY.md)
+    merged = os.path.join(TMP, "q4_merged.gguf")
+    assert py("apply_patch.py", q4, out, merged).returncode == 0
+    held = os.path.join(corpus, "heldout.txt")
+
+    def sc(model, patch=None, plain=False):
+        env = dict(os.environ, HAG_NO_REPACK="1") if plain else None
+        a = ["score", model, "--file", held, "--threads", 2] + (["--patch", patch] if patch else [])
+        p = subprocess.run([CLI] + [str(x) for x in a], capture_output=True, text=True, env=env)
+        return json.loads(p.stdout.strip().splitlines()[-1])["mean_nll"]
+    assert sc(merged, plain=True) == sc(q4, out, plain=True)
+    floor = abs(sc(q4) - sc(q4, plain=True))
+    diff = abs(sc(merged) - sc(q4, out))
+    record("q4_merge_kernel_noise_floor", floor)
+    record("q4_merge_diff", diff)
+    assert diff <= 2 * floor + 1e-6
 
 
 def test_untrainable_inputs_fail_cleanly(pretrained, corpus):
