@@ -47,6 +47,7 @@ set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GGML_CCACHE OFF CACHE BOOL "" FORCE)
@@ -74,19 +75,28 @@ endif()
 add_subdirectory("${LLAMA_CPP_DIR}" llama.cpp EXCLUDE_FROM_ALL)
 
 # ---- libhagengine.so: engine + llama.cpp (never loaded before the CPU gate passes) -------------------------------
-file(GLOB HAG_ENGINE_SOURCES CONFIGURE_DEPENDS
+file(GLOB_RECURSE HAG_ENGINE_SOURCES CONFIGURE_DEPENDS
   "${HAG_ENGINE_DIR}/src/*.cpp" "${HAG_ENGINE_DIR}/src/*.cc" "${HAG_ENGINE_DIR}/src/*.c")
+# Host-side test/tool/bench sources that live under src/ are not part of the shipped library.
+list(FILTER HAG_ENGINE_SOURCES EXCLUDE REGEX "/(tests?|tools?|bench|benchmarks?|examples?)/|(_test|_tests|_main)\\.(c|cc|cpp)$")
 if(NOT HAG_ENGINE_SOURCES)
   message(FATAL_ERROR "no engine sources under ${HAG_ENGINE_DIR}/src")
 endif()
+message(STATUS "HAG engine sources: ${HAG_ENGINE_SOURCES}")
 add_library(hagengine SHARED ${HAG_ENGINE_SOURCES})
 target_include_directories(hagengine PRIVATE
   "${HAG_ENGINE_DIR}/include" "${HAG_ENGINE_DIR}/src"
   "${LLAMA_CPP_DIR}/include" "${LLAMA_CPP_DIR}/src" "${LLAMA_CPP_DIR}/ggml/include" "${LLAMA_CPP_DIR}/ggml/src")
-target_link_libraries(hagengine PRIVATE llama ggml log android)
+target_link_libraries(hagengine PRIVATE llama ggml)
+if(ANDROID)
+  target_link_libraries(hagengine PRIVATE log android)
+endif()
 target_link_options(hagengine PRIVATE -Wl,--exclude-libs,ALL)  # only the hag_* C API is exported
 
 # ---- libhagrt.so: JNI bridge + CPU gate, plain baseline ISA, no link dependency on the engine -----------------------
 add_library(hagrt SHARED hag_jni.cpp)
 target_include_directories(hagrt PRIVATE "${HAG_ENGINE_DIR}/include")
-target_link_libraries(hagrt PRIVATE dl log)
+target_link_libraries(hagrt PRIVATE ${CMAKE_DL_LIBS})
+if(ANDROID)
+  target_link_libraries(hagrt PRIVATE log)
+endif()

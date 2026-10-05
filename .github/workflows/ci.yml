@@ -21,6 +21,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: OTA core unit tests
         run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
+      - name: JNI bridge + Kotlin binding on a plain JVM against a stub C engine (-Xcheck:jni; no Android SDK needed)
+        run: runtime/host-test/run.sh
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Factory tests

@@ -272,8 +272,23 @@ JFN(jbyteArray, nativeCpuAbi)(JNIEnv *env, jclass) {
 // Resolves every hag_* symbol from the already-loaded libhagengine.so. Returns null on success, else the reason.
 JFN(jbyteArray, nativeBind)(JNIEnv *env, jclass) {
     if (g_bound) return nullptr;
+    // Normally the Java side already System.loadLibrary()'d it, so the bare soname resolves to the loaded image.
     void *lib = dlopen("libhagengine.so", RTLD_NOW | RTLD_LOCAL);
-    if (lib == nullptr) { const char *e = dlerror(); return cstrToBytes(env, e ? e : "dlopen(libhagengine.so) failed"); }
+    std::string firstErr;
+    if (lib == nullptr) { const char *fe = dlerror(); if (fe != nullptr) firstErr = fe; }
+    if (lib == nullptr) {
+        // Fallback: the sibling of this very library (works for extracted libs and for "base.apk!/lib/<abi>/" paths).
+        Dl_info info;
+        if (dladdr(reinterpret_cast<void *>(&JNI_OnLoad), &info) != 0 && info.dli_fname != nullptr) {
+            std::string self(info.dli_fname);
+            size_t slash = self.rfind('/');
+            if (slash != std::string::npos) lib = dlopen((self.substr(0, slash + 1) + "libhagengine.so").c_str(), RTLD_NOW | RTLD_LOCAL);
+        }
+    }
+    if (lib == nullptr) {
+        const char *e = dlerror();
+        return cstrToBytes(env, ("dlopen(libhagengine.so) failed: " + (e ? std::string(e) : firstErr)).c_str());
+    }
     Api a;
     std::string err;
     bool ok =
