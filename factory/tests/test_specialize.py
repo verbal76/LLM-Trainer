@@ -23,7 +23,11 @@ ENTRY = {
     "commercial_use": "yes", "fine_tuning_permitted": "yes", "derivative_adapter_permitted": "yes",
     "redistribution_permitted": "yes", "attribution_required": "yes", "restrictions": [],
     "supported_formats": ["safetensors"],
-    "verification": {"source_urls": ["https://example.invalid/license"], "verified_on": "2026-10-05", "uncertainties": []},
+    "schema_version": 2,
+    "verification": {
+        "state": "VERIFIED", "evidence_level": "primary_license_text_read", "verified_scope": "test fixture", "license_text_sha256": "sha256:" + "a" * 64,
+        "source_urls": ["https://example.invalid/license"], "verified_on": "2026-10-05", "uncertainties": [],
+    },
 }
 
 
@@ -102,6 +106,22 @@ def test_unverified_refused_unless_local_flag():
     assert d.license_state == "UNVERIFIED" and d.local_experiment and "LOCAL EXPERIMENT" in d.warnings[0]
 
 
+def test_unverified_state_fails_closed_even_if_permissions_claim_yes():
+    e = entry(verification={"state": "UNVERIFIED", "evidence_level": "secondary_source_only",
+                            "source_urls": ["https://example.invalid/x"], "verified_on": "2026-10-05", "uncertainties": []})
+    with pytest.raises(LicenseGateError):
+        decide_training_license(e, commercial=False, allow_unverified_local=False)
+    d = decide_training_license(e, commercial=False, allow_unverified_local=True)
+    assert d.license_state == "UNVERIFIED" and d.local_experiment
+
+
+def test_disallowed_state_is_never_overridable():
+    e = entry(verification={"state": "DISALLOWED", "evidence_level": "primary_license_text_read", "disallowed_reason": "test",
+                            "source_urls": ["https://example.invalid/x"], "verified_on": "2026-10-05", "uncertainties": []})
+    with pytest.raises(LicenseGateError):
+        decide_training_license(e, commercial=False, allow_unverified_local=True)
+
+
 def test_conditional_needs_flag_and_explicit_no_never_overridable():
     c = entry(derivative_adapter_permitted="conditional")
     with pytest.raises(LicenseGateError):
@@ -114,7 +134,7 @@ def test_conditional_needs_flag_and_explicit_no_never_overridable():
 def test_missing_evidence_is_not_verified():
     e = entry(commercial_use="unverified", fine_tuning_permitted="unverified", derivative_adapter_permitted="unverified",
               redistribution_permitted="unverified", attribution_required="unverified",
-              verification={"source_urls": [], "verified_on": None, "uncertainties": []})
+              verification={"state": "UNVERIFIED", "evidence_level": "none", "source_urls": [], "verified_on": None, "uncertainties": []})
     with pytest.raises(LicenseGateError):
         decide_training_license(e, commercial=False, allow_unverified_local=False)
 

@@ -26,13 +26,16 @@ class PackagingRefused(RuntimeError):
 
 
 def classify_state(entry: BaseModelLicenseEntry, gate: GateResult) -> LicenseState:
-    evidence = bool(entry.verification.source_urls and entry.verification.verified_on)
-    if gate.allowed and evidence:
+    """Map the (fail-closed) gate verdict to a state. ``VERIFIED`` only if the gate itself allowed the use,
+    which requires verification.state == VERIFIED with primary evidence AND every permission == yes."""
+    if gate.allowed:
         return "VERIFIED"
+    if entry.verification.state == "DISALLOWED":
+        return "RESTRICTED"
     failing = [c.value for c in gate.checks if not c.passed and c.field != "supported_formats"]
     if "no" in failing:
         return "RESTRICTED"
-    if "conditional" in failing:
+    if "conditional" in failing and entry.verification.state == "VERIFIED":
         return "CONDITIONAL"
     return "UNVERIFIED"
 
