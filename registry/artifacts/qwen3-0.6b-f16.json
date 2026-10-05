@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "artifact_id": "qwen3-0.6b-f16",
-  "refresh_state": "unrefreshed",
-  "refreshed_at": null,
+  "refresh_state": "refreshed",
+  "refreshed_at": "2026-10-05T17:43:01Z",
   "optional": true,
-  "published": null,
+  "published": false,
   "family": "Qwen3",
   "base_repo": "Qwen/Qwen3-0.6B",
   "source": {
@@ -12,7 +12,7 @@
     "repo_url": "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF",
     "file": null,
     "file_glob": "*f16.gguf",
-    "revision": null,
+    "revision": "60b85c0e3d8fe0f6474f406922a26d12aca4550d",
     "download_url": null
   },
   "format": "gguf",
@@ -66,6 +66,6 @@
     "evidence": null
   },
   "notes": [
-    "UNREFRESHED placeholder: no hash, size or revision is known. The app treats this artifact as NOT downloadable."
+    "No published file matches '*f16.gguf' at revision 60b85c0e3d8fe0f6474f406922a26d12aca4550d; not downloadable."
   ]
 }

@@ -46,7 +46,7 @@ class ModelsServiceTest {
 
     @Test fun beforeTheFirstCatalogRefreshEveryChoiceIsAPreviewAndNothingIsDownloadable() {
         val rig = TK.rig(); rig.snap = { pixel() }
-        val c = rig.open().models.modelChoices()
+        val c = ArtifactKit.open(rig, ArtifactKit.unrefreshed()).models.modelChoices()
         assertEquals(setOf("fastest", "balanced", "best_quality", "best_specialize"), c.choices.map { it.choice }.toSet())
         for (ch in c.choices) { assertTrue(ch.tier == "preview" || ch.tier == "none", "${ch.choice}: ${ch.tier}"); assertFalse(ch.downloadable) }
         assertTrue(c.artifacts.none { it.downloadable || it.canDownload })

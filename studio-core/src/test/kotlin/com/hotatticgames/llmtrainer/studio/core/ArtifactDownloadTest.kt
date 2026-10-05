@@ -41,9 +41,33 @@ class ArtifactDownloadTest {
 
     // ---- shipped (unrefreshed) registry ----------------------------------------------------------------------------
 
-    @Test fun shippedUnrefreshedArtifactsAreNeverDownloadable() {
+    @Test fun shippedCatalogIsInternallyConsistent() {
         val rig = TK.rig()
         val core = rig.open()
+        val arts = core.models.modelChoices().artifacts
+        assertTrue(arts.size >= 10)
+        val st = core.models.catalogStatus()
+        assertEquals(arts.size, st.artifactCount)
+        for (a in arts) {
+            val v = core.model(a.modelId).ok().variants.first { it.id == a.variantId }
+            if (a.catalogState == "refreshed") {
+                // a refreshed artifact is pinned to an immutable revision with a size and a 64-hex sha256, nothing else
+                assertNotNull(v.downloadUrl, a.artifactId); assertTrue(v.downloadUrl!!.contains("/resolve/"), a.artifactId)
+                assertTrue(Regex("[0-9a-f]{64}").matches(v.sha256 ?: ""), a.artifactId)
+                assertTrue(v.sizeBytes > 0, a.artifactId); assertFalse(a.sizeIsEstimate, a.artifactId)
+            } else {
+                assertNull(v.downloadUrl, a.artifactId); assertNull(v.sha256, a.artifactId); assertFalse(a.downloadable, a.artifactId)
+            }
+        }
+        // the license gate is independent of the refresh: nothing is VERIFIED without byte-identical canonical text + a matching card
+        assertTrue(arts.none { it.licenseState == LicenseState.VERIFIED && it.catalogState != "refreshed" })
+        assertTrue(core.startupProblems.isEmpty(), core.startupProblems.toString())
+        assertTrue(rig.http.requests.isEmpty())
+    }
+
+    @Test fun unrefreshedArtifactsAreNeverDownloadable() {
+        val rig = TK.rig()
+        val core = ArtifactKit.open(rig, ArtifactKit.unrefreshed())
         val arts = core.models.modelChoices().artifacts
         assertTrue(arts.size >= 10)
         for (a in arts) {

@@ -41,6 +41,18 @@ object ArtifactKit {
         return J.dump(m)
     }
 
+    /** The shipped catalog as it looked before any CI refresh: every artifact an UNREFRESHED placeholder (no file, revision, size or hash). */
+    fun unrefreshed(): List<Pair<String, String>> = EmbeddedArtifacts.files.map { (name, text) ->
+        if (name == "index.json" || name == "sources.json") return@map name to text
+        val o = org.json.JSONObject(text)
+        if (o.optString("refresh_state") != "refreshed" && o.optString("refresh_state") != "not_published") return@map name to text
+        o.put("refresh_state", "unrefreshed"); o.put("refreshed_at", org.json.JSONObject.NULL); o.put("published", org.json.JSONObject.NULL)
+        o.put("size_bytes", org.json.JSONObject.NULL); o.put("sha256", org.json.JSONObject.NULL)
+        o.optJSONObject("source")?.let { it.put("file", org.json.JSONObject.NULL); it.put("revision", org.json.JSONObject.NULL); it.put("download_url", org.json.JSONObject.NULL) }
+        o.put("notes", org.json.JSONArray().put("UNREFRESHED placeholder: no hash, size or revision is known. The app treats this artifact as NOT downloadable."))
+        name to o.toString()
+    }
+
     fun open(rig: TK.Rig, artifacts: List<Pair<String, String>>): StudioCore =
         StudioCore(rig.dir, { rig.snap() }, null, rig.http, rig.clock, rig.storage, rig.runner, rig.ids, "test", SafetyPolicy(), EmbeddedRegistry.files, artifacts, EmbeddedArtifacts.canonicalLicenses)
 

@@ -43,14 +43,23 @@ class CatalogTest {
         assertEquals(vids.size, vids.toSet().size)
         assertTrue(vids.all { it.contains('#') })
         for (m in c) for (v in m.variants) {
-            // the registry knows no sizes: every figure is an ESTIMATE and says so; nothing pretends to be a file URL
-            assertEquals("estimate", v.provenance.evidenceLevel, v.id)
-            assertTrue(v.provenance.note!!.contains("ESTIMATE"), v.id)
-            assertNull(v.downloadUrl, v.id)
-            assertNull(v.sha256, v.id)
+            if (v.downloadUrl == null) {
+                // not (yet) refreshed from the model hub: every figure is an ESTIMATE and says so; nothing pretends to be a file URL
+                assertEquals("estimate", v.provenance.evidenceLevel, v.id)
+                assertTrue(v.provenance.note!!.contains("ESTIMATE"), v.id)
+                assertNull(v.sha256, v.id)
+            } else {
+                // CI-refreshed: a pinned file with a real hash
+                assertTrue(v.provenance.evidenceLevel != "estimate", v.id)
+                assertTrue(Regex("[0-9a-f]{64}").matches(v.sha256 ?: ""), v.id)
+            }
             assertTrue(v.sizeBytes >= 1L shl 20, v.id)
-            assertEquals(entryCtx[m.id] ?: 0, v.contextTokensMax)              // context not recorded -> 0 (unknown), never invented
-            assertEquals(RunLocation.DESKTOP, v.training.where)
+            if (v.downloadUrl == null) {
+                assertEquals(entryCtx[m.id] ?: 0, v.contextTokensMax)          // context not recorded -> 0 (unknown), never invented
+                assertEquals(RunLocation.DESKTOP, v.training.where)
+            } else {
+                assertTrue(v.contextTokensMax > 0, v.id)                       // read from the GGUF header by the CI refresh
+            }
             assertFalse(v.acquired)
         }
     }
