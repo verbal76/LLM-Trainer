@@ -22,6 +22,7 @@ Sha = Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]
 Permission = Literal["yes", "no", "conditional", "unverified"]
 Verdict = Literal["fit", "no_fit", "unverified"]
 Confidence = Literal["measured", "partial", "estimated"]
+LicenseState = Literal["VERIFIED", "UNVERIFIED", "CONDITIONAL", "RESTRICTED"]
 IsoDate = Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}")]
 
 
@@ -326,7 +327,7 @@ class TrainingRun(Artifact):
     base_model_license_hash: Sha
     license_gate: GateResult
     method: Literal["stub", "lora", "qlora", "full"]
-    executor: Literal["stub", "external"]
+    executor: Literal["stub", "external", "hf_lora"]
     is_pipeline_validation_stub: bool
     seed: int
     hyperparameters: dict[str, Any]
@@ -337,6 +338,13 @@ class TrainingRun(Artifact):
     finished_on: str | None = None
     train_metrics: dict[str, float] = Field(default_factory=dict)
     output_artifacts: dict[str, Sha] = Field(default_factory=dict)
+    # Real-specialization additions (all optional so stub runs stay valid).
+    config_hash: Sha | None = None
+    trainer: str | None = None
+    license_state: LicenseState | None = None  # state of the training-permission gate at run time
+    local_experiment_unverified_license: bool = False  # True => run must never be packaged/exported
+    timings_s: dict[str, float] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -420,6 +428,7 @@ class BaseModelRef(Base):
     exact_version: str
     license_id: str
     license_entry_hash: Sha
+    license_state: LicenseState | None = None  # redistribution-grade state declared at export time
 
 
 class TokenizerInfo(Base):
@@ -475,6 +484,8 @@ class ModelManifest(Artifact):
     target_profile: str
     known_limitations: list[str]
     is_pipeline_validation_stub: bool = False
+    training_config_hash: Sha | None = None
+    local_experiment: bool = False  # produced under the unverified-license local-experiment flag
 
     @property
     def model_identity(self) -> str:
@@ -685,6 +696,7 @@ ROLES = (
     "license_gate",
     "attribution",
     "runtime_manifest",
+    "training_run",
     "reference_chunks",
     "reference_index",
     "readme",
@@ -707,6 +719,7 @@ class PackageFile(Base):
         "license_gate",
         "attribution",
         "runtime_manifest",
+        "training_run",
         "reference_chunks",
         "reference_index",
         "readme",

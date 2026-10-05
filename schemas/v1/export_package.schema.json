@@ -132,6 +132,7 @@
             "license_gate",
             "attribution",
             "runtime_manifest",
+            "training_run",
             "reference_chunks",
             "reference_index",
             "readme"
