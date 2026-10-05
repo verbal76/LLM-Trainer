@@ -50,7 +50,7 @@ jobs:
         run: native/fetch-llama.sh
 
       - name: Configure (portable CPU build; no -march=native)
-        run: cmake -S native/engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DHAG_NATIVE=OFF -DHAG_BUILD_SHARED=ON
+        run: cmake -S native/engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DHAG_NATIVE=OFF -DHAG_BUILD_SHARED=ON -DPython3_EXECUTABLE="$(which python)"
 
       - name: Build
         run: cmake --build build/engine -j "$(nproc)"
