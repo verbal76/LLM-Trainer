@@ -1,0 +1,2 @@
+# llama.cpp commit used by the HAG engine (2026-10-01). Changing it requires re-validating native/patches/*.patch and the engine suite.
+0c1e57098bba43ac29e6e3b677cdceebdd22334f

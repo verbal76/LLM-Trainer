@@ -1,0 +1,204 @@
+name: engine
+
+# HAG native engine (native/engine): builds the pinned+patched llama.cpp, runs the engine test suite, then proves the
+# train->patch->reload->evaluate pipeline on REAL pre-trained GGUFs downloaded from huggingface.co and sha256-verified.
+# Linux x86_64 only. These numbers are x86 CPU numbers, NOT phone numbers (see docs/v2/TRAINING_FEASIBILITY.md).
+on:
+  push:
+    branches: ['engine/**', 'ccr-*']
+  workflow_dispatch:
+    inputs:
+      real_epochs:
+        description: 'epochs for the real-model specialization run'
+        default: '20'
+      pretrain_epochs:
+        description: 'epochs for the tiny pre-trained fixture used by the unit/integration suite'
+        default: '2'
+
+concurrency:
+  group: engine-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HAG_THREADS: '4'
+
+jobs:
+  build-and-test:
+    name: build + engine test suite (x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python test dependencies
+        run: python -m pip install --disable-pip-version-check gguf numpy pytest
+
+      - name: Cache fetched llama.cpp (pinned commit + patches)
+        uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+
+      - name: Fetch pinned llama.cpp and apply patches
+        run: native/fetch-llama.sh
+
+      - name: Configure (portable CPU build; no -march=native)
+        run: cmake -S native/engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DHAG_NATIVE=OFF -DHAG_BUILD_SHARED=ON
+
+      - name: Build
+        run: cmake --build build/engine -j "$(nproc)"
+
+      - name: Exported symbols of libhag_engine.so (only hag_* may be exported)
+        run: |
+          nm -D --defined-only build/engine/libhag_engine.so | awk '{print $3}' | grep -v '^_' | sort > exports.txt || true
+          cat exports.txt
+          if grep -vE '^hag_' exports.txt; then echo "::error::non-hag symbols exported"; exit 1; fi
+
+      - name: Cache the tiny pre-trained fixture (trained by the engine itself)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/engine/test-tmp/pretrained5m.gguf
+            build/engine/test-tmp/pretrained5m.gguf.heldout.txt
+          key: pretrained5m-v1-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/engine/src/**', 'native/engine/tools/make_*.py', 'native/engine/tools/apply_patch.py') }}
+
+      - name: Engine tests (hag_unit + pytest integration suite)
+        env:
+          HAG_PRETRAIN_EPOCHS: ${{ github.event.inputs.pretrain_epochs || '2' }}
+        run: ctest --test-dir build/engine --output-on-failure -V
+
+      - name: Throughput / memory table (x86 CPU numbers)
+        if: always()
+        run: |
+          python native/engine/tools/bench_engine.py --cli build/engine/hag_cli --out build/engine/test-tmp/bench --sizes 1m,5m,15m,40m,135m --threads 4 --quant || true
+
+      - name: Upload measurements and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-test-measurements
+          path: |
+            build/engine/test-tmp/measurements.json
+            build/engine/test-tmp/bench/**
+            build/engine/test-tmp/work_*/train_run.log
+            build/engine/test-tmp/work_*/requant_eval.json
+            build/engine/test-tmp/pretrained5m.gguf.pretrain.log
+          if-no-files-found: warn
+
+      - name: Upload hag_cli for the real-model jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: build/engine/hag_cli
+          retention-days: 3
+
+  real-model:
+    name: real model - ${{ matrix.label }}
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # real pre-trained instruct model (llama architecture, tied embeddings), F16 weights: full train-on-device path
+          - label: smollm2-135m-f16
+            repo: HuggingFaceTB/SmolLM2-135M-Instruct-GGUF
+            glob: '*[Ff]16*.gguf'
+            layers: '4'
+            chat: '--chat'
+            resume: '--resume-check'
+          # real tiny story model, quantized base: exercises F32 working copy + write-back into the base tensor type
+          - label: stories15m-quantized
+            repo: ggml-org/models
+            glob: 'tinyllamas/stories15M-q*.gguf'
+            layers: '3'
+            chat: ''
+            resume: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python dependencies
+        run: python -m pip install --disable-pip-version-check gguf numpy
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: bin
+
+      - name: Prose for the degradation measurement (pinned llama.cpp docs)
+        uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+
+      - run: native/fetch-llama.sh && chmod +x bin/hag_cli
+
+      - name: Download model from huggingface.co and verify sha256 against the HF API (fails on mismatch)
+        run: |
+          mkdir -p models out
+          python native/engine/tools/fetch_hf_model.py "${{ matrix.repo }}" --glob '${{ matrix.glob }}' --out models --lock out/models.lock.json
+          ls -la models
+          echo "MODEL=$(ls models/*.gguf | head -n1)" >> "$GITHUB_ENV"
+
+      - name: Real inference, short real training, reload, evaluation (and SIGKILL/resume where enabled)
+        run: |
+          python native/engine/tests/real_model_check.py --cli bin/hag_cli --model "$MODEL" --label "${{ matrix.label }}" --out out \
+            --prose-dir native/.deps/llama.cpp/docs --layers ${{ matrix.layers }} --epochs ${{ github.event.inputs.real_epochs || '20' }} \
+            --threads "$HAG_THREADS" ${{ matrix.chat }} ${{ matrix.resume }} 2>&1 | tee out/real_${{ matrix.label }}.log
+
+      - name: Upload measurements, lock record and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-model-${{ matrix.label }}
+          path: |
+            out/*.json
+            out/*.log
+            out/work_*/train_run.log
+            out/work_*/requant_eval.json
+          if-no-files-found: warn
+
+  android-cross-compile:
+    name: android NDK compile check (${{ matrix.abi }})
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    continue-on-error: true   # informational: the Android binding owner builds the shipped library
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+      - run: native/fetch-llama.sh
+      - name: Configure + build libhag_engine.so with the runner's NDK
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-$ANDROID_NDK_ROOT}}"
+          echo "NDK=$NDK"
+          cmake -S native/engine -B build/android-${{ matrix.abi }} -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-26 \
+            -DANDROID_STL=c++_static -DHAG_NATIVE=OFF -DHAG_BUILD_CLI=OFF -DHAG_BUILD_TESTS=OFF
+          cmake --build build/android-${{ matrix.abi }} -j "$(nproc)" --target hag_engine
+          ls -la build/android-${{ matrix.abi }}/libhag_engine.so
+          "$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D --defined-only build/android-${{ matrix.abi }}/libhag_engine.so | grep ' T ' | grep -c hag_ || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libhag_engine-${{ matrix.abi }}
+          path: build/android-${{ matrix.abi }}/libhag_engine.so
+          retention-days: 3

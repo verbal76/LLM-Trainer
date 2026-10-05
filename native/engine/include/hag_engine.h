@@ -58,10 +58,14 @@ HAG_API void        hag_free(void *p);                     /* free memory return
 typedef int (*hag_progress_fn)(float fraction, void *user);
 
 HAG_API hag_status  hag_model_load(const char *gguf_path, int use_mmap, hag_progress_fn progress, void *user, hag_model **out);
-/* Apply a specialist patch (written by hag_train) onto a loaded base. Verifies the patch's base-model sha256/shape match. */
+/* Apply a specialist patch (written by hag_train) onto a loaded base. Verifies the patch's base-model sha256/shape match.
+ * Call it before creating sessions (HAG_ERR_INVALID_ARG otherwise); one patch per model handle. The base file is never modified:
+ * patched tensors live in private memory. Hashes the whole base file on first use (cost ~ file size / ~0.3 GB/s on x86; cached
+ * in the handle). Wrong base / corrupt / truncated patch => HAG_ERR_CORRUPT and the model stays unpatched. */
 HAG_API hag_status  hag_model_apply_patch(hag_model *model, const char *patch_path);
 HAG_API void        hag_model_free(hag_model *model);
-/* JSON: n_params, n_layer, n_embd, n_vocab, n_ctx_train, file_type, size_bytes, arch, chat_template present, patched, ... (owned by model) */
+/* JSON: n_params, n_layer, n_embd, n_vocab, n_ctx_train, file_type, size_bytes, arch, chat_template present, patched, ... (owned by
+ * model; valid until hag_model_free or the next hag_model_apply_patch). */
 HAG_API const char *hag_model_info_json(const hag_model *model);
 
 /* ---- inference -------------------------------------------------------------------------------------------- */
@@ -104,9 +108,15 @@ HAG_API hag_status  hag_chat_format(const hag_model *model, const char *const *r
 /* Continues from the session's current KV state with `prompt_utf8` (call hag_session_reset first for a fresh chat). */
 HAG_API hag_status  hag_generate(hag_session *s, const char *prompt_utf8, const hag_sample_params *sp,
                                  hag_token_fn sink, void *user, hag_gen_stats *stats);
-HAG_API void        hag_cancel(hag_session *s);               /* async-safe; also cancels hag_score */
+/* async-safe; also cancels hag_score. Applies to the hag_generate/hag_score call in progress (the flag is cleared when a call starts,
+ * so call it after the worker has entered the call); a cancelled prompt phase leaves the session as it was before the call. */
+HAG_API void        hag_cancel(hag_session *s);
+/* Always sets *n_out to the token count. If out_tokens is NULL (cap 0) it only counts; if cap < count returns HAG_ERR_INVALID_ARG
+ * (the buffer then holds the first `cap` tokens). Special-token text such as "<|im_end|>" is parsed as the special token. */
 HAG_API hag_status  hag_tokenize(const hag_model *model, const char *text, int add_special, int32_t *out_tokens, int cap, int *n_out);
-/* Mean negative log-likelihood per token of `text` under the model (lower = better fit). Used for held-out evaluation. */
+/* Mean negative log-likelihood (nats) per predicted token of `text` under the model (lower = better fit). BOS is prepended; the
+ * first token is context only, so *n_tokens = tokens scored = tokenised length - 1. Texts longer than 256 tokens are scored in
+ * 256-token windows overlapping by one token. Uses the session KV as scratch (conversation state is cleared). */
 HAG_API hag_status  hag_score(hag_session *s, const char *text, double *mean_nll, int *n_tokens);
 
 /* ---- parameter-changing specialization (on-device) -------------------------------------------------------- */
@@ -123,6 +133,12 @@ typedef struct hag_train_params {
     int32_t  train_embeddings;      /* nonzero: also train token embeddings / output head */
     int32_t  checkpoint_every_steps;/* 0 = once per epoch */
     size_t   max_memory_bytes;      /* refuse (HAG_ERR_OOM) instead of starting if the estimate exceeds this; 0 = no limit */
+    /* ---- appended after the first commit (additive; read only if struct_size covers them, otherwise treated as 0) ---- */
+    int32_t  lora_rank;             /* 0 = tune base weights (patch replaces tensors). >0 = LoRA: train rank-r adapters on every attention/FFN
+                                       projection of the trainable layers with the base FROZEN (quantized bases need no F32 copy, the base can
+                                       stay mmap'd; optimizer state is tiny). The patch is then a standard llama.cpp LoRA adapter GGUF
+                                       (plus hag.* provenance keys) and trainable_last_layers selects the layers that get adapters. */
+    float    lora_alpha;            /* LoRA scale = lora_alpha / lora_rank; 0 = 2 * lora_rank */
 } hag_train_params;
 
 enum { HAG_PHASE_PREPARE = 0, HAG_PHASE_TRAIN = 1, HAG_PHASE_EVAL = 2, HAG_PHASE_SAVE = 3, HAG_PHASE_DONE = 4 };
@@ -147,13 +163,24 @@ typedef int (*hag_train_fn)(const hag_train_event *ev, void *user);
  *  - Checkpoints (atomic, hash-protected) are written to work_dir; a later call with the same inputs RESUMES.
  *  - On success writes a specialist PATCH to out_patch_path containing ONLY the changed tensors plus metadata
  *    (base sha256, tensor names, hyper-parameters, dataset hash, step counts). hag_model_apply_patch() reloads it.
+ *  - n_ctx is the requested sequence length; the effective length can be shorter for tiny corpora (recorded in the patch).
+ *    n_batch / n_ctx whole sequences are accumulated per optimizer step (AdamW, constant lr, no weight decay). A run is identified by
+ *    (base sha256, texts, all hyper-parameters incl. seed and n_threads); only the same identity resumes or is a no-op when the
+ *    patch already exists. Pin n_threads: float summation order, hence bit-exact resume, depends on it.
+ *  - Errors: HAG_ERR_OOM (estimate > max_memory_bytes; nothing written), HAG_ERR_UNSUPPORTED, HAG_ERR_CANCELLED (callback returned
+ *    nonzero; a checkpoint is kept), HAG_ERR_INTERNAL (loss diverged: lower the learning rate; latest checkpoint kept), HAG_ERR_IO.
  *  - Never modifies the base file. Unsupported bases (e.g. quantized weights that cannot be trained) return
  *    HAG_ERR_UNSUPPORTED with an explanation; the engine must not silently fall back to anything fake.
  */
 HAG_API hag_status  hag_train(const char *base_gguf_path, const char *const *texts, int n_texts,
                               const hag_train_params *params, const char *work_dir, const char *out_patch_path,
                               hag_train_fn progress, void *user);
-/* Cheap pre-flight: estimated peak bytes for training with these params (JSON also reports whether the base is trainable). */
+/* Cheap pre-flight (reads only the GGUF header): JSON {"trainable":bool,"reason":..,"estimated_peak_bytes":..,"bytes":{weights,
+ * optimizer,activations,logits,kv,overhead},"trainable_params":..,"working_copy_needed":..,"disk_total_bytes":..,"tied_embeddings":..,
+ * "train_embeddings_effective":..,"fits_max_memory":..}. Memory/disk figures are conservative upper bounds measured on x86 (see
+ * docs/v2/TRAINING_FEASIBILITY.md). Quantized bases are trainable: the trained layers are expanded to F32 in a working copy
+ * (work_dir) and written back to the base tensor type in the patch. Only architecture "llama" is validated; others return
+ * trainable=false (HAG_ERR_UNSUPPORTED from hag_train). */
 HAG_API hag_status  hag_train_estimate(const char *base_gguf_path, const hag_train_params *params, char **out_json);
 HAG_API hag_status  hag_patch_info_json(const char *patch_path, char **out_json);   /* hag_free the result */
 
