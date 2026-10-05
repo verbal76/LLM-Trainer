@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 16 KB page-size + native packaging qualification of a built APK.
-#   usage: check-16kb.sh <apk> <release|debug>
+#   usage: check-16kb.sh <apk> [release|debug]   (default release)
 #
 # Gates (all must hold, otherwise exit 1 with a diagnostic line per violation):
 #   1. every lib/<abi>/*.so: all PT_LOAD segments have p_align >= 0x4000 (16384)
@@ -11,8 +11,8 @@
 #   6. release: arm64-v8a has libhagrt.so + libhagengine.so and NO other ABI ships (phones only);
 #      debug: arm64-v8a AND x86_64 both ship (x86_64 is for emulator qualification only).
 set -uo pipefail
-APK=${1:?usage: check-16kb.sh <apk> <release|debug>}
-KIND=${2:?usage: check-16kb.sh <apk> <release|debug>}
+APK=${1:?usage: check-16kb.sh <apk> [release|debug]   (default release)}
+KIND=${2:-release}
 [ -f "$APK" ] || { echo "::error::no such apk: $APK"; exit 1; }
 BT=$(ls -d "${ANDROID_HOME:?ANDROID_HOME not set}"/build-tools/* | sort -V | tail -1)
 fail=0

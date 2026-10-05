@@ -114,7 +114,7 @@ class HostEngineTest {
     }
 
     @Test fun engineDependentBundleIsRefusedWithoutAnEngineAndStagedWithOne() {
-        val bytes = fixture("bundle-8-needs-engine")
+        val bytes = fixture("bundle-9-needs-engine")
         val noEngine = unavailable()
         val f1 = OneBundleFetcher("eng", bytes)
         assertEquals("NEEDS_NEW_APK", check(HostRuntime(target, root(), f1, engineStatusProvider = { EngineStatus.Unavailable("loadEngine", "x") })).kind)

@@ -31,11 +31,11 @@ RUNNER="-Pandroid.testInstrumentationRunnerArguments"
 ./gradlew --no-daemon --continue -Phag.abis="$ABIS" :runtime:connectedDebugAndroidTest :app:connectedDebugAndroidTest \
   "$RUNNER.hagRequireModels=true" "$RUNNER.hagModelQ8=/data/local/tmp/hag/model-q8_0.gguf" \
   "$RUNNER.hagModelF16=/data/local/tmp/hag/model-f16.gguf" \
-  -PotaPrivateKeyFile="$CI_KEY.key" -PotaPublicKeyFile="$CI_KEY.pub" -PotaKeyId=ci -PotaFixturesDir="$FIXTURES"
+  ${GIT_SHA_SHORT:+-PgitSha=$GIT_SHA_SHORT} -PotaPrivateKeyFile="$CI_KEY.key" -PotaPublicKeyFile="$CI_KEY.pub" -PotaKeyId=ci -PotaFixturesDir="$FIXTURES"
 rc=$?
 
 echo "== diagnostics (rc=$rc)"
-adb logcat -d -s HagTest:V HagEngine:V HagOta:V AndroidRuntime:E DEBUG:V libc:F | tail -150
+adb logcat -d -s HagTest:V HagEngine:V HagOta:V HagHost:V AndroidRuntime:E DEBUG:V libc:F | tail -150
 adb logcat -d -b crash | tail -60
 adb shell dmesg 2>/dev/null | grep -iE 'lowmemorykiller|oom|killed process' | tail -10 || true
 exit $rc

@@ -79,12 +79,21 @@ class HostRuntime(
             bundleId = "llmtrainer-main",
             channel = "stable",
             builtinBundleVersion = builtinBundleVersion,
+            sourceSha = BuildConfig.GIT_SHA,
         )
     }
     val store = UpdateStore(rootDir)
 
     @Volatile var running: Running? = null
         private set
+
+    /**
+     * Identity of the bundle currently being brought up (loaded / self-tested / building its view). Published BEFORE any
+     * bundle code runs so diagnostics can never claim "none / v0" while a bundle is alive (entry.create, selfTest and
+     * createContentView may all read diagnosticsJson()).
+     */
+    private class Starting(val source: String, val version: Int, val versionName: String, val slotId: String?)
+    @Volatile private var starting: Starting? = null
     private var startedAtMs = 0L
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -104,15 +113,23 @@ class HostRuntime(
         override fun restartApp() = this@HostRuntime.restartProcess()
     }
 
-    fun diagnosticsJson(): String {
+    fun diagnosticsJson(): String = Diagnostics.toJson(diagnosticsReport())
+
+    fun diagnosticsReport() = run {
         val r = running
-        return Diagnostics.toJson(
-            Diagnostics.build(
-                hostInfo, store.load(), r?.source ?: "none", r?.version ?: 0, r?.versionName ?: "-", r?.slotId,
-                buildSha = BuildConfig.GIT_SHA, engineStatus = engineState.describe(),
-            ),
-        )
+        val s = starting
+        val state = store.load()
+        val es = engineState.describe()
+        when {
+            r != null -> Diagnostics.build(hostInfo, state, r.source, r.version, r.versionName, r.slotId, engineStatus = es)
+            // Bundle coming up: report what is starting, with an explicit source so it is never mistaken for a settled state.
+            s != null -> Diagnostics.build(hostInfo, state, "starting:${s.source}", s.version, s.versionName, s.slotId, engineStatus = es)
+            else -> Diagnostics.build(hostInfo, state, "none", 0, "-", null, engineStatus = es)
+        }
     }
+
+    /** The five-identity block of docs/VERSIONING.md (native / application / OTA sequence / runtime / source). */
+    fun identityBlock(): String = diagnosticsReport().identityBlock
 
     /**
      * Pick, load and self-test a bundle, falling back until something works. Heavy; call off the main thread.
@@ -122,7 +139,7 @@ class HostRuntime(
     fun boot(makeView: (BundleApp) -> View): Running? {
         startedAtMs = SystemClock.elapsedRealtime()
         hostInfo // bring the native engine up now, on this worker thread (never on the main thread)
-        runCatching { store.reconcileBuiltin(builtinBundleVersion) }
+        runCatching { store.reconcileBuiltin(builtinBundleVersion, hostInfo.nativeAbi) }
         repeat(6) {
             when (val plan = store.planBoot()) {
                 is BootPlan.Slot -> {
@@ -146,6 +163,7 @@ class HostRuntime(
         dexes: List<File>, makeView: (BundleApp) -> View,
     ): Running? {
         return try {
+            starting = Starting(source, version, name, slotId)
             val loader = DexClassLoader(
                 dexes.joinToString(File.pathSeparator) { it.absolutePath }, null, null, HostRuntime::class.java.classLoader,
             )
@@ -156,9 +174,11 @@ class HostRuntime(
             val r = Running(source, version, name, slotId, entryClass, app, null)
             running = r
             r.view = makeView(app)
+            starting = null
             r
         } catch (t: Throwable) {
             running = null
+            starting = null
             Log.e(TAG, "bundle $source v$version failed to start", t)
             if (slotId != null) store.reportFailure(slotId, "${t.javaClass.simpleName}: ${t.message}")
             else store.record("BUILTIN_FAILED", "${t.javaClass.simpleName}: ${t.message}")
@@ -219,12 +239,24 @@ class HostRuntime(
                 CheckResult.Failed(listOf(com.hotatticgames.llmtrainer.ota.Reject(com.hotatticgames.llmtrainer.ota.RejectCode.DOWNLOAD_FAILED, t.message ?: "error")))
             }
             val status = when (result) {
-                is CheckResult.UpToDate -> UpdateStatus("UP_TO_DATE", "bundle v${result.version}")
+                is CheckResult.UpToDate -> UpdateStatus(
+                    "UP_TO_DATE",
+                    if (result.channelPublished) "bundle #${result.version}" else "No update channel is published yet, so there is nothing newer to install.",
+                )
                 is CheckResult.Staged -> UpdateStatus("STAGED", "${result.slot.versionName} (v${result.slot.bundleVersion})")
                 is CheckResult.NeedsNewApk -> UpdateStatus("NEEDS_NEW_APK", "${result.newestBundle}: ${result.reasons.joinToString()}")
-                is CheckResult.Failed -> UpdateStatus("FAILED", result.reasons.joinToString())
+                is CheckResult.Failed -> UpdateStatus("FAILED", failureMessage(result.reasons))
             }
             main.post { callback(status) }
+        }
+    }
+
+    private fun failureMessage(reasons: List<com.hotatticgames.llmtrainer.ota.Reject>): String {
+        val r = reasons.firstOrNull() ?: return "unknown error"
+        return when (r.code) {
+            com.hotatticgames.llmtrainer.ota.RejectCode.NETWORK_UNAVAILABLE -> "Could not reach the update server (offline or network error). Try again when connected."
+            com.hotatticgames.llmtrainer.ota.RejectCode.SERVER_ERROR -> "The update server had a problem (${r.detail}). Try again later."
+            else -> reasons.joinToString()
         }
     }
 

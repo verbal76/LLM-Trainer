@@ -113,7 +113,7 @@ class NativeV2RulesTest {
 
     @Test fun diagnosticsCarryBuildShaAndEngineStatus() {
         val json = Diagnostics.toJson(
-            Diagnostics.build(v2Host, UpdateStore(TestKit.tmp()).load(), "builtin", 3, "2.0", null, buildSha = "abc1234", engineStatus = "ready"),
+            Diagnostics.build(v2Host.copy(sourceSha = "abc1234"), UpdateStore(TestKit.tmp()).load(), "builtin", 3, "2.0", null, engineStatus = "ready"),
         )
         assertTrue(json.contains("\"buildSha\": \"abc1234\"") && json.contains("\"engineStatus\": \"ready\"") && json.contains("\"nativeAbi\": 2"))
     }

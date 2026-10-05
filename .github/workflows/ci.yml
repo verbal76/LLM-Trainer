@@ -75,7 +75,7 @@ jobs:
         run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
 
       - name: Build OTA qualification fixtures
-        run: tools/ci/build-ota-fixtures.sh "$RUNNER_TEMP/ci-ota" "$PWD/fixtures"
+        run: tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
 
       - name: Build APKs (native engine for arm64-v8a + x86_64)
         run: |
@@ -163,27 +163,10 @@ jobs:
           packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}"
       - uses: gradle/actions/setup-gradle@v4
 
-      # The 16 KB page-size image is probed, not assumed: if it is not published for this SDK channel the leg is skipped
-      # with a loud warning (the static 16 KB ELF + zip-alignment gates in the android job still run).
+      # The 16 KB page-size image is probed, not assumed (see tools/ci/resolve-emulator-image.sh).
       - name: Resolve emulator system image
         id: img
-        run: |
-          sdkmanager --list 2>/dev/null | grep -E 'system-images;android-3[0-9];(google_apis|google_apis_ps16k);x86_64' | sed 's/|.*//' | sort -u || true
-          T=${{ matrix.target }}
-          for API in 36 35; do
-            if sdkmanager --list 2>/dev/null | grep -q "system-images;android-$API;$T;x86_64"; then
-              echo "api=$API" >> "$GITHUB_OUTPUT"; echo "available=true" >> "$GITHUB_OUTPUT"
-              echo "using system-images;android-$API;$T;x86_64"; exit 0
-            fi
-          done
-          echo "available=false" >> "$GITHUB_OUTPUT"
-          if [ "$T" = google_apis_ps16k ]; then
-            case "$GITHUB_REF" in
-              refs/heads/release/*|refs/heads/main) echo "::error::No 16 KB page-size x86_64 system image found in sdkmanager; release/main refuses to skip the 16 KB emulator leg."; exit 1 ;;
-              *) echo "::warning::No 16 KB page-size x86_64 system image found in sdkmanager; the ps16k emulator leg is SKIPPED on this ref." ; exit 0 ;;
-            esac
-          fi
-          echo "::error::system image system-images;android-36;$T;x86_64 not found"; exit 1
+        run: tools/ci/resolve-emulator-image.sh "${{ matrix.target }}" 36
 
       - uses: actions/cache@v4
         with:
@@ -200,7 +183,7 @@ jobs:
       - name: Ephemeral CI OTA key + fixtures
         run: |
           ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
-          tools/ci/build-ota-fixtures.sh "$RUNNER_TEMP/ci-ota" "$PWD/fixtures"
+          tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
 
       - name: Pre-build native engine + test APKs (x86_64)
         if: steps.img.outputs.available == 'true'
