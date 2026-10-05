@@ -101,6 +101,8 @@ class HostActivity : Activity() {
             if (splash == null) splashActive = false
         }
         lastSplashShownAtMs = if (splashActive) SystemClock.elapsedRealtime() else -1L
+        // The brand minimum counts from when the logo is actually on screen (decoding it can be slow on small devices).
+        if (splashActive) createdAtMs = lastSplashShownAtMs
         lastProductAttachedAtMs = -1L
         lastSplashRemovedAtMs = -1L
         setContentView(container)
