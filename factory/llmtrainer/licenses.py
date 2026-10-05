@@ -1,8 +1,10 @@
 """Base-model license registry and the license gate.
 
-Policy: a requested use is allowed only if every required permission is
-exactly ``"yes"``. ``"conditional"``, ``"no"`` and ``"unverified"`` all block;
-unverified is treated as blocked, never as permissive.
+Policy (fail closed): an entry whose ``verification.state`` is not VERIFIED
+(UNVERIFIED or DISALLOWED) blocks every use and its recorded permission values
+are ignored - they are claims, not facts. For a VERIFIED entry a requested use
+is allowed only if every required permission is exactly ``"yes"``;
+``"conditional"``, ``"no"`` and ``"unverified"`` all block.
 """
 
 from __future__ import annotations
@@ -13,6 +15,21 @@ from pathlib import Path
 
 from .hashing import hash_obj
 from .schemas import BaseModelLicenseEntry, GateCheck, GateResult
+
+# Machine-readable reason codes (stable API; also stored in GateResult.reason_codes).
+LICENSE_UNVERIFIED = "LICENSE_UNVERIFIED"
+LICENSE_DISALLOWED = "LICENSE_DISALLOWED"
+LICENSE_EVIDENCE_INVALID = "LICENSE_EVIDENCE_INVALID"
+PERMISSION_NOT_GRANTED = "PERMISSION_NOT_GRANTED"
+PERMISSION_CONDITIONAL = "PERMISSION_CONDITIONAL"
+PERMISSION_UNVERIFIED = "PERMISSION_UNVERIFIED"
+FORMAT_NOT_SUPPORTED = "FORMAT_NOT_SUPPORTED"
+
+EVIDENCE_REMEDIATION = (
+    "Read the LICENSE (and model card) from the model's official repository, record the sha256 of the exact "
+    "text inspected in verification.license_text_sha256, set verification.evidence_level to a primary_* level, "
+    "fill source_urls/verified_on/verified_scope, then set verification.state to VERIFIED."
+)
 
 
 class LicenseGateError(RuntimeError):
@@ -45,21 +62,47 @@ def entry_hash(entry: BaseModelLicenseEntry) -> str:
     return hash_obj(entry.model_dump(mode="json"))
 
 
-def evaluate_gate(entry: BaseModelLicenseEntry, use: RequestedUse) -> GateResult:
+def _state_check(entry: BaseModelLicenseEntry) -> GateCheck | None:
+    """Fail-closed check on verification state. Returns None only for a consistent VERIFIED entry."""
+    v = entry.verification
+    if v.state == "DISALLOWED":
+        return GateCheck(
+            requirement="license verification", field="verification.state", value=v.state, passed=False,
+            code=LICENSE_DISALLOWED,
+            reason=f"DISALLOWED: known incompatible with the requested use ({v.disallowed_reason or 'no reason recorded'}); "
+            "recorded permission claims are ignored",
+        )
+    if v.state != "VERIFIED":
+        return GateCheck(
+            requirement="license verification", field="verification.state", value=v.state, passed=False,
+            code=LICENSE_UNVERIFIED,
+            reason=f"UNVERIFIED (evidence_level={v.evidence_level}): recorded permission claims are ignored. "
+            f"To unblock: {EVIDENCE_REMEDIATION}",
+        )
+    problems = v.evidence_problems()  # defence in depth against entries built without validation
+    if problems:
+        return GateCheck(
+            requirement="license verification", field="verification", value="VERIFIED", passed=False,
+            code=LICENSE_EVIDENCE_INVALID,
+            reason="state is VERIFIED but evidence is inconsistent: " + "; ".join(problems),
+        )
+    return None
+
+
+def _permission_checks(entry: BaseModelLicenseEntry, use: RequestedUse) -> list[GateCheck]:
     checks: list[GateCheck] = []
 
     def need(requirement: str, field_name: str) -> None:
         value = getattr(entry, field_name)
-        passed = value == "yes"
-        if passed:
-            reason = "permitted"
+        if value == "yes":
+            code, reason = "OK", "permitted"
         elif value == "unverified":
-            reason = "unverified is treated as blocked"
+            code, reason = PERMISSION_UNVERIFIED, "unverified is treated as blocked"
         elif value == "conditional":
-            reason = "conditional permission: conditions must be resolved and the entry updated to 'yes'"
+            code, reason = PERMISSION_CONDITIONAL, "conditional permission: conditions must be resolved and the entry updated to 'yes'"
         else:
-            reason = "not permitted"
-        checks.append(GateCheck(requirement=requirement, field=field_name, value=value, passed=passed, reason=reason))
+            code, reason = PERMISSION_NOT_GRANTED, "not permitted"
+        checks.append(GateCheck(requirement=requirement, field=field_name, value=value, passed=value == "yes", reason=reason, code=code))
 
     if use.fine_tune:
         need("fine-tune the model", "fine_tuning_permitted")
@@ -78,9 +121,29 @@ def evaluate_gate(entry: BaseModelLicenseEntry, use: RequestedUse) -> GateResult
                 value=use.export_format,
                 passed=ok,
                 reason="listed" if ok else "format not listed in supported_formats",
+                code="OK" if ok else FORMAT_NOT_SUPPORTED,
             )
         )
-    blocking = [f"{c.requirement}: {c.field}={c.value} ({c.reason})" for c in checks if not c.passed]
+    return checks
+
+
+def evaluate_gate(entry: BaseModelLicenseEntry, use: RequestedUse) -> GateResult:
+    """Fail-closed license gate. Permission claims count only when verification.state == VERIFIED."""
+    state_check = _state_check(entry)
+    checks = [state_check] if state_check is not None else _permission_checks(entry, use)
+    blocking = [f"[{c.code}] {c.requirement}: {c.field}={c.value} ({c.reason})" for c in checks if not c.passed]
+    codes = sorted({c.code for c in checks if not c.passed})
+    remediation: list[str] = []
+    if LICENSE_UNVERIFIED in codes or LICENSE_EVIDENCE_INVALID in codes:
+        remediation.append(EVIDENCE_REMEDIATION)
+    if LICENSE_DISALLOWED in codes:
+        remediation.append("Choose a different base model or a different intended use; this entry is recorded as incompatible.")
+    if PERMISSION_CONDITIONAL in codes:
+        remediation.append("Resolve the license conditions with a human reviewer, then record the outcome as 'yes' with evidence.")
+    if PERMISSION_NOT_GRANTED in codes or PERMISSION_UNVERIFIED in codes:
+        remediation.append("The verified license does not grant the requested use; drop that use or pick another model.")
+    if FORMAT_NOT_SUPPORTED in codes:
+        remediation.append("Export in a listed format or update supported_formats with evidence.")
     return GateResult(
         entry_id=entry.entry_id,
         entry_hash=entry_hash(entry),
@@ -88,8 +151,11 @@ def evaluate_gate(entry: BaseModelLicenseEntry, use: RequestedUse) -> GateResult
         allowed=not blocking,
         checks=checks,
         blocking=blocking,
-        attribution_required=entry.attribution_required,
+        attribution_required=entry.attribution_required if state_check is None else "unverified",
         restrictions=list(entry.restrictions),
+        verification_state=entry.verification.state,
+        reason_codes=codes,
+        remediation=remediation,
     )
 
 
@@ -117,14 +183,20 @@ class LicenseRegistry:
 
     @classmethod
     def load(cls, path: str | Path) -> "LicenseRegistry":
-        """Load one JSON file or every ``*.json`` file in a directory (file may hold an object or a list)."""
+        """Load one JSON file or every ``*.json`` file in a directory (file may hold an object or a list).
+
+        Entries must be schema_version 2; v1 entries are rejected, never silently upgraded.
+        """
         p = Path(path)
         files = sorted(p.glob("*.json")) if p.is_dir() else [p]
         reg = cls()
         for f in files:
             data = json.loads(f.read_text(encoding="utf-8"))
             for item in data if isinstance(data, list) else [data]:
-                reg.add(BaseModelLicenseEntry.model_validate(item))
+                try:
+                    reg.add(BaseModelLicenseEntry.model_validate(item))
+                except ValueError as e:  # includes pydantic ValidationError; v1 entries land here
+                    raise ValueError(f"{f.name}: invalid base-model entry: {e}") from e
         return reg
 
 

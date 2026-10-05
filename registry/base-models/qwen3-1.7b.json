@@ -1,6 +1,5 @@
 {
-  "schema": "llm-trainer/base-model-entry",
-  "schema_version": 1,
+  "schema_version": 2,
   "model_family": "Qwen3",
   "exact_version": "Qwen3-1.7B (2504 generation, hybrid thinking)",
   "hf_repo_or_source": "Qwen/Qwen3-1.7B",
@@ -29,9 +28,32 @@
     "kv_heads": null,
     "head_dim": null,
     "hidden_size": null,
+    "attention": null,
     "notes": "Dense GQA transformer (family). Layers/heads/context for the 1.7B were NOT obtained in this round; unverified."
   },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/Qwen/Qwen3-1.7B",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)",
+      "ExecuTorch"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
   "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
     "source_urls": [
       "https://github.com/QwenLM/Qwen3",
       "https://www.apache.org/licenses/LICENSE-2.0.txt",
@@ -42,8 +64,8 @@
     "uncertainties": [
       "Qwen3-2507 refreshed 4B/30B/235B variants exist (Qwen3-4B-Instruct-2507 / Thinking-2507); this entry is the original 2504 4B/8B. Newer Qwen3.5 supersedes it.",
       "Architecture values from search excerpts of config.json, not the file itself.",
-      "LICENSE file in the model repo not read (huggingface.co blocked)."
-    ],
-    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+      "LICENSE file in the model repo not read (huggingface.co blocked).",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
   }
 }

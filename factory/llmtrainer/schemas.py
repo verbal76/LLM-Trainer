@@ -5,7 +5,10 @@ a ``kind`` discriminator and a ``content_hash`` computed over the canonical
 JSON of every other field. Call :meth:`Artifact.seal` before persisting and
 :meth:`Artifact.verify` after loading.
 
-Schema versions start honestly at 1; there is no migration history.
+Schema versions start honestly at 1; there is no migration history. The one
+exception is the base-model registry entry, which is a separately versioned
+contract at schema_version 2 (see ``ENTRY_SCHEMA_VERSION`` below); v1 entries
+are rejected.
 """
 
 from __future__ import annotations
@@ -56,51 +59,161 @@ class Artifact(Base):
 
 
 # --------------------------------------------------------------------------- #
-# Base-model license registry entry
+# Base-model license registry entry (entry schema_version 2)
 # --------------------------------------------------------------------------- #
+#
+# Entry format history:
+#   v1  permissions were trusted at face value ("yes" passed the gate).
+#   v2  BREAKING. Adds ``verification.state`` / ``verification.evidence_level``.
+#       The permission fields are now *claims*: the license gate ignores them
+#       unless ``verification.state == "VERIFIED"``, which itself requires a
+#       primary license/model-card read and the sha256 of the text inspected.
+#       v1 entries are rejected by the loader (never silently accepted).
+
+ENTRY_SCHEMA_VERSION = 2
+
+VerificationState = Literal["VERIFIED", "UNVERIFIED", "DISALLOWED"]
+EvidenceLevel = Literal["primary_license_text_read", "primary_model_card_read", "secondary_source_only", "none"]
+PRIMARY_EVIDENCE: frozenset[str] = frozenset({"primary_license_text_read", "primary_model_card_read"})
 
 
 class LicenseVerification(Base):
+    state: VerificationState = Field(
+        description="Gate-relevant verification state. Only VERIFIED lets the permission claims count; "
+        "UNVERIFIED and DISALLOWED fail closed."
+    )
+    evidence_level: EvidenceLevel
     source_urls: list[str] = Field(default_factory=list)
     verified_on: IsoDate | None = None
+    license_text_sha256: Sha | None = Field(
+        default=None, description="sha256 of the exact license text that was inspected (required for VERIFIED)."
+    )
+    license_text_url: str | None = None
+    verified_scope: str | None = Field(
+        default=None, description="What exactly was verified (which text, which uses). Required for VERIFIED."
+    )
+    disallowed_reason: str | None = Field(default=None, description="Required for DISALLOWED.")
     uncertainties: list[str] = Field(default_factory=list)
+
+    def evidence_problems(self) -> list[str]:
+        """Why this verification block cannot support its declared state (empty when consistent)."""
+        problems: list[str] = []
+        if self.state == "VERIFIED":
+            if self.evidence_level not in PRIMARY_EVIDENCE:
+                problems.append(f"VERIFIED requires primary evidence, got evidence_level={self.evidence_level}")
+            if not self.license_text_sha256:
+                problems.append("VERIFIED requires license_text_sha256")
+            if not self.verified_on:
+                problems.append("VERIFIED requires verified_on")
+            if not self.source_urls:
+                problems.append("VERIFIED requires source_urls")
+            if not self.verified_scope:
+                problems.append("VERIFIED requires verified_scope")
+        elif self.state == "DISALLOWED":
+            if self.evidence_level not in PRIMARY_EVIDENCE:
+                problems.append(f"DISALLOWED is not allowed with evidence_level={self.evidence_level}; must be UNVERIFIED")
+            if not self.disallowed_reason:
+                problems.append("DISALLOWED requires disallowed_reason")
+        return problems
+
+    @model_validator(mode="after")
+    def _state_matches_evidence(self) -> Self:
+        problems = self.evidence_problems()
+        if problems:
+            raise ValueError("; ".join(problems))
+        return self
+
+
+class ArchitectureInfo(Base):
+    layers: int | None = None
+    kv_heads: int | None = None
+    head_dim: int | None = None
+    hidden_size: int | None = None
+    attention: str | None = Field(default=None, description="e.g. 'GQA'; null when not evidenced.")
+    notes: str | None = None
+
+
+class ModelVariant(Base):
+    """One downloadable form of a model. Sizes/hashes are null unless actually known."""
+
+    variant_id: str
+    format: str
+    quantization: str | None = None
+    source_url: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    sha256: Sha | None = None
+    size_evidence: str | None = None
+
+
+class AndroidInference(Base):
+    state: Literal["unverified", "evidenced", "infeasible"] = "unverified"
+    runtime_candidates: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def _evidenced_needs_evidence(self) -> Self:
+        if self.state != "unverified" and not self.evidence:
+            raise ValueError("android_inference state other than 'unverified' requires evidence")
+        return self
 
 
 class BaseModelLicenseEntry(Base):
-    """Machine-readable license facts for one exact base-model version."""
+    """Machine-readable license facts for one exact base-model version.
 
+    The ``commercial_use`` .. ``attribution_required`` fields are *claims as
+    recorded*; they carry no force unless ``verification.state == "VERIFIED"``.
+    """
+
+    schema_version: Literal[2] = ENTRY_SCHEMA_VERSION
     model_family: str
     exact_version: str
     license_id: str
     license_url: str
-    commercial_use: Permission
-    fine_tuning_permitted: Permission
-    derivative_adapter_permitted: Permission
-    redistribution_permitted: Permission
-    attribution_required: Permission
+    commercial_use: Permission = Field(description="Claim; ignored by the gate unless VERIFIED.")
+    fine_tuning_permitted: Permission = Field(description="Claim; ignored by the gate unless VERIFIED.")
+    derivative_adapter_permitted: Permission = Field(description="Claim; ignored by the gate unless VERIFIED.")
+    redistribution_permitted: Permission = Field(description="Claim; ignored by the gate unless VERIFIED.")
+    attribution_required: Permission = Field(description="Claim; ignored by the gate unless VERIFIED.")
     restrictions: list[str] = Field(default_factory=list)
     supported_formats: list[str] = Field(default_factory=list)
     verification: LicenseVerification
+    # catalog facts (never guessed; null when unknown)
+    hf_repo_or_source: str | None = None
+    parameter_count: str | None = None
+    context_length: int | None = None
+    architecture: ArchitectureInfo | None = None
+    variants: list[ModelVariant] = Field(default_factory=list)
+    android_inference: AndroidInference = Field(default_factory=AndroidInference)
 
     @property
     def entry_id(self) -> str:
         return f"{self.model_family}@{self.exact_version}"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_old_entry_formats(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            v = data.get("schema_version", 1)
+            if v != ENTRY_SCHEMA_VERSION:
+                raise ValueError(
+                    f"base-model entry schema_version {v!r} is not supported (need {ENTRY_SCHEMA_VERSION}); "
+                    "v1 entries trusted permission claims without verification state and are rejected, "
+                    "not silently upgraded - re-review and add verification.state/evidence_level"
+                )
+        return data
+
     @model_validator(mode="after")
-    def _verified_claims_need_evidence(self) -> Self:
-        fields = (
+    def _claims_need_sources(self) -> Self:
+        claims = (
             self.commercial_use,
             self.fine_tuning_permitted,
             self.derivative_adapter_permitted,
             self.redistribution_permitted,
             self.attribution_required,
         )
-        if any(f != "unverified" for f in fields):
-            if not self.verification.source_urls or not self.verification.verified_on:
-                raise ValueError(
-                    "a permission other than 'unverified' requires verification.source_urls "
-                    "and verification.verified_on"
-                )
+        if any(c != "unverified" for c in claims) and not self.verification.source_urls:
+            raise ValueError("recording a permission claim requires verification.source_urls")
         return self
 
 
@@ -110,6 +223,7 @@ class GateCheck(Base):
     value: Permission | str
     passed: bool
     reason: str
+    code: str = Field(default="OK", description="Machine-readable reason code.")
 
 
 class GateResult(Base):
@@ -121,6 +235,9 @@ class GateResult(Base):
     blocking: list[str]
     attribution_required: Permission
     restrictions: list[str] = Field(default_factory=list)
+    verification_state: VerificationState = "UNVERIFIED"
+    reason_codes: list[str] = Field(default_factory=list, description="Machine-readable codes for every blocking check.")
+    remediation: list[str] = Field(default_factory=list, description="What the owner must do to unblock.")
 
 
 # --------------------------------------------------------------------------- #

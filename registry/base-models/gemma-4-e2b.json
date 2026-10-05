@@ -1,6 +1,5 @@
 {
-  "schema": "llm-trainer/base-model-entry",
-  "schema_version": 1,
+  "schema_version": 2,
   "model_family": "Gemma 4",
   "exact_version": "Gemma 4 E2B",
   "hf_repo_or_source": "google/gemma-4-e2b",
@@ -30,9 +29,32 @@
     "kv_heads": null,
     "head_dim": null,
     "hidden_size": null,
+    "attention": null,
     "notes": "Unverified; context window reported 128K for small models (secondary)."
   },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/google/gemma-4-e2b",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)",
+      "LiteRT-LM"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
   "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
     "source_urls": [
       "https://github.com/google-deepmind/gemma",
       "https://developers.google.com/edge/litert-lm/models/gemma-4",
@@ -44,8 +66,8 @@
     "verified_on": "2026-10-05",
     "uncertainties": [
       "Apache-2.0 for Gemma 4 rests on Google DeepMind's announcement text and secondary/official-doc excerpts surfaced through search; ai.google.dev, blog.google and huggingface.co were egress-blocked so the license text in the model repo was NOT read. Earlier Gemma versions (<=3) used the custom Gemma Terms of Use with a prohibited-use policy; the distinction must be confirmed from the Gemma 4 repo LICENSE and any accompanying terms before packaging.",
-      "The DeepMind google-deepmind/gemma GitHub repo states its CODE is Apache-2.0 but does not state the weights license on the page we read."
-    ],
-    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+      "The DeepMind google-deepmind/gemma GitHub repo states its CODE is Apache-2.0 but does not state the weights license on the page we read.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
   }
 }

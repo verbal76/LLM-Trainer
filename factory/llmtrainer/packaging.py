@@ -115,6 +115,8 @@ def attribution_text(entry: BaseModelLicenseEntry, name: str) -> str:
         "Restrictions recorded for the base model:",
         *(f"- {r}" for r in entry.restrictions or ["(none recorded)"]),
         "",
+        f"License verification: {entry.verification.state} ({entry.verification.evidence_level}), "
+        f"license text {entry.verification.license_text_sha256 or 'not hashed'}",
         "License facts last verified: " + str(entry.verification.verified_on),
     ]
     if entry.verification.uncertainties:

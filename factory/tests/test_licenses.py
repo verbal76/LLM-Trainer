@@ -8,12 +8,20 @@ from llmtrainer.licenses import LicenseGateError, LicenseRegistry, RequestedUse,
 from llmtrainer.schemas import BaseModelLicenseEntry, RightsInfo, SourceManifest
 
 
+VERIFIED_V = {
+    "state": "VERIFIED", "evidence_level": "primary_license_text_read",
+    "source_urls": ["https://example.invalid/license"], "verified_on": "2026-10-05",
+    "license_text_sha256": "sha256:" + "ab" * 32, "verified_scope": "test text", "uncertainties": [],
+}
+UNVERIFIED_V = {"state": "UNVERIFIED", "evidence_level": "secondary_source_only", "source_urls": ["https://example.invalid/x"], "verified_on": "2026-10-05"}
+
+
 def entry(**over) -> BaseModelLicenseEntry:
     d = dict(
-        model_family="fam", exact_version="1.0", license_id="TEST-1", license_url="https://example.invalid/license",
+        schema_version=2, model_family="fam", exact_version="1.0", license_id="TEST-1", license_url="https://example.invalid/license",
         commercial_use="yes", fine_tuning_permitted="yes", derivative_adapter_permitted="yes",
         redistribution_permitted="yes", attribution_required="yes", restrictions=["r"], supported_formats=["gguf"],
-        verification={"source_urls": ["https://example.invalid/license"], "verified_on": "2026-10-05", "uncertainties": []},
+        verification=dict(VERIFIED_V),
     )
     d.update(over)
     return BaseModelLicenseEntry.model_validate(d)
@@ -47,7 +55,7 @@ def test_non_yes_blocks_requested_use(field, use, value):
 
 
 def test_unverified_is_blocked_with_clear_reason():
-    r = evaluate_gate(entry(commercial_use="unverified", verification={"source_urls": ["u"], "verified_on": "2026-10-05"}), RequestedUse(commercial=True))
+    r = evaluate_gate(entry(commercial_use="unverified"), RequestedUse(commercial=True))
     assert any("unverified is treated as blocked" in c.reason for c in r.checks)
 
 
@@ -63,15 +71,16 @@ def test_unsupported_format_blocks():
 def test_fully_unverified_entry_blocks_everything():
     e = entry(
         commercial_use="unverified", fine_tuning_permitted="unverified", derivative_adapter_permitted="unverified",
-        redistribution_permitted="unverified", attribution_required="unverified", verification={"source_urls": [], "verified_on": None},
+        redistribution_permitted="unverified", attribution_required="unverified",
+        verification={"state": "UNVERIFIED", "evidence_level": "none"},
     )
     assert not evaluate_gate(e, RequestedUse()).allowed
     assert evaluate_gate(e, RequestedUse()).attribution_required == "unverified"
 
 
-def test_verified_claims_need_evidence():
+def test_permission_claims_need_source_urls():
     with pytest.raises(ValidationError):
-        entry(verification={"source_urls": [], "verified_on": None})
+        entry(verification={"state": "UNVERIFIED", "evidence_level": "none"})
 
 
 def test_invalid_permission_value_rejected():

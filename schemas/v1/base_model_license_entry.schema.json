@@ -1,14 +1,196 @@
 {
   "$defs": {
+    "AndroidInference": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "runtime_candidates": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Runtime Candidates",
+          "type": "array"
+        },
+        "state": {
+          "default": "unverified",
+          "enum": [
+            "unverified",
+            "evidenced",
+            "infeasible"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "title": "AndroidInference",
+      "type": "object"
+    },
+    "ArchitectureInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "attention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. 'GQA'; null when not evidenced.",
+          "title": "Attention"
+        },
+        "head_dim": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Dim"
+        },
+        "hidden_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hidden Size"
+        },
+        "kv_heads": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kv Heads"
+        },
+        "layers": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layers"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        }
+      },
+      "title": "ArchitectureInfo",
+      "type": "object"
+    },
     "LicenseVerification": {
       "additionalProperties": false,
       "properties": {
+        "disallowed_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required for DISALLOWED.",
+          "title": "Disallowed Reason"
+        },
+        "evidence_level": {
+          "enum": [
+            "primary_license_text_read",
+            "primary_model_card_read",
+            "secondary_source_only",
+            "none"
+          ],
+          "title": "Evidence Level",
+          "type": "string"
+        },
+        "license_text_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "sha256 of the exact license text that was inspected (required for VERIFIED).",
+          "title": "License Text Sha256"
+        },
+        "license_text_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License Text Url"
+        },
         "source_urls": {
           "items": {
             "type": "string"
           },
           "title": "Source Urls",
           "type": "array"
+        },
+        "state": {
+          "description": "Gate-relevant verification state. Only VERIFIED lets the permission claims count; UNVERIFIED and DISALLOWED fail closed.",
+          "enum": [
+            "VERIFIED",
+            "UNVERIFIED",
+            "DISALLOWED"
+          ],
+          "title": "State",
+          "type": "string"
         },
         "uncertainties": {
           "items": {
@@ -29,18 +211,132 @@
           ],
           "default": null,
           "title": "Verified On"
+        },
+        "verified_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What exactly was verified (which text, which uses). Required for VERIFIED.",
+          "title": "Verified Scope"
         }
       },
+      "required": [
+        "state",
+        "evidence_level"
+      ],
       "title": "LicenseVerification",
+      "type": "object"
+    },
+    "ModelVariant": {
+      "additionalProperties": false,
+      "description": "One downloadable form of a model. Sizes/hashes are null unless actually known.",
+      "properties": {
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "quantization": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantization"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "size_evidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Evidence"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        },
+        "variant_id": {
+          "title": "Variant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "variant_id",
+        "format"
+      ],
+      "title": "ModelVariant",
       "type": "object"
     }
   },
   "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/base_model_license_entry.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Machine-readable license facts for one exact base-model version.",
+  "description": "Machine-readable license facts for one exact base-model version.\n\nThe ``commercial_use`` .. ``attribution_required`` fields are *claims as\nrecorded*; they carry no force unless ``verification.state == \"VERIFIED\"``.",
   "properties": {
+    "android_inference": {
+      "$ref": "#/$defs/AndroidInference"
+    },
+    "architecture": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArchitectureInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "attribution_required": {
+      "description": "Claim; ignored by the gate unless VERIFIED.",
       "enum": [
         "yes",
         "no",
@@ -51,6 +347,7 @@
       "type": "string"
     },
     "commercial_use": {
+      "description": "Claim; ignored by the gate unless VERIFIED.",
       "enum": [
         "yes",
         "no",
@@ -60,7 +357,20 @@
       "title": "Commercial Use",
       "type": "string"
     },
+    "context_length": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context Length"
+    },
     "derivative_adapter_permitted": {
+      "description": "Claim; ignored by the gate unless VERIFIED.",
       "enum": [
         "yes",
         "no",
@@ -75,6 +385,7 @@
       "type": "string"
     },
     "fine_tuning_permitted": {
+      "description": "Claim; ignored by the gate unless VERIFIED.",
       "enum": [
         "yes",
         "no",
@@ -83,6 +394,18 @@
       ],
       "title": "Fine Tuning Permitted",
       "type": "string"
+    },
+    "hf_repo_or_source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hf Repo Or Source"
     },
     "license_id": {
       "title": "License Id",
@@ -96,7 +419,20 @@
       "title": "Model Family",
       "type": "string"
     },
+    "parameter_count": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parameter Count"
+    },
     "redistribution_permitted": {
+      "description": "Claim; ignored by the gate unless VERIFIED.",
       "enum": [
         "yes",
         "no",
@@ -113,11 +449,24 @@
       "title": "Restrictions",
       "type": "array"
     },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
     "supported_formats": {
       "items": {
         "type": "string"
       },
       "title": "Supported Formats",
+      "type": "array"
+    },
+    "variants": {
+      "items": {
+        "$ref": "#/$defs/ModelVariant"
+      },
+      "title": "Variants",
       "type": "array"
     },
     "verification": {
@@ -138,5 +487,5 @@
   ],
   "title": "BaseModelLicenseEntry",
   "type": "object",
-  "x-schema-version": 1
+  "x-schema-version": 2
 }

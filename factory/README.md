@@ -32,7 +32,7 @@ Other commands: `remove-source`, `plan-removal`, `check-license`, `qualify-devic
 | --- | --- |
 | `hashing.py` | Canonical JSON (sorted keys, compact, UTF-8) and `sha256:` hashing. |
 | `schemas.py` | v1 artifact contracts (pydantic, `extra=forbid`), `seal()`/`verify()` content hashes. |
-| `licenses.py` | Base-model license registry + gate. Only `"yes"` passes; `unverified` is blocked. Source rights gate. |
+| `licenses.py` | Base-model license registry + fail-closed gate (entry schema v2). Permission fields are claims; they count only when `verification.state == VERIFIED`. UNVERIFIED/DISALLOWED block with reason codes. Source rights gate. |
 | `ingest.py` | Text/Markdown ingestion, section/page-aware chunking with provenance. |
 | `splits.py` | Deterministic group-level split, MinHash-LSH near-duplicate detection, leakage resolution. |
 | `datasets.py` | Template example generation, split files, `DatasetManifest`, leakage re-verification. |
@@ -51,8 +51,10 @@ Other commands: `remove-source`, `plan-removal`, `check-license`, `qualify-devic
 
 * `run-experiment` uses a unigram-table stub trainer/evaluator. It validates plumbing only and can never
   set `improvement_claim_allowed`. Real training is an external executor behind the `Trainer` protocol.
-* No real base-model license entries are shipped here; they must be verified against authoritative sources
-  and added to the registry (`registry/`), with `verification.source_urls` and `verified_on`.
+* Real base-model entries live in `../registry/base-models/`. All are `UNVERIFIED` (secondary sources only)
+  except the two Llama community licenses, whose official text was read and hashed (their permissions are
+  still `conditional`, so the gate blocks). To unblock a model: read the LICENSE from the official repo, record
+  its sha256 as `verification.license_text_sha256`, set a `primary_*` `evidence_level`, and set `state: VERIFIED`.
 * `device.py` reference model geometries and quantization quality penalties are illustrative heuristics.
   Estimates are inflated and never yield the `recommended` tier; only a complete passing on-device
   benchmark does.

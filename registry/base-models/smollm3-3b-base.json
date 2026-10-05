@@ -1,6 +1,5 @@
 {
-  "schema": "llm-trainer/base-model-entry",
-  "schema_version": 1,
+  "schema_version": 2,
   "model_family": "SmolLM3",
   "exact_version": "SmolLM3-3B-Base",
   "hf_repo_or_source": "HuggingFaceTB/SmolLM3-3B-Base",
@@ -28,9 +27,32 @@
     "kv_heads": 4,
     "head_dim": null,
     "hidden_size": 2048,
+    "attention": null,
     "notes": "Context: trained at 64k, up to 128k with YaRN extrapolation per model card excerpt; NoPE layers; GQA. Values from transformers config defaults/doc excerpt."
   },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/HuggingFaceTB/SmolLM3-3B-Base",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)",
+      "ONNX Runtime GenAI"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
   "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
     "source_urls": [
       "https://github.com/huggingface/smollm",
       "https://huggingface.co/HuggingFaceTB/SmolLM3-3B (search excerpt)",
@@ -39,8 +61,8 @@
     "verified_on": "2026-10-05",
     "uncertainties": [
       "Per-repo LICENSE not read directly (huggingface.co blocked); README of huggingface/smollm states Apache 2.0.",
-      "Architecture values are from documentation defaults surfaced via search; verify config.json."
-    ],
-    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+      "Architecture values are from documentation defaults surfaced via search; verify config.json.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
   }
 }
