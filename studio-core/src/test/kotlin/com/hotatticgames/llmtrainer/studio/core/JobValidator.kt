@@ -90,7 +90,9 @@ object JobValidator {
                     val c = chunkByRef[ref]
                     if (c == null) p.add("example refs missing chunk $ref") else {
                         if (c.getString("role") != "train") p.add("example refs non-train chunk $ref")
-                        if (c.getString("group_id") != gid) p.add("chunk group != example group for $ref")
+                        val groupBy = dm.getJSONObject("split_assignment").getString("group_by")
+                        val chunkGroup = if (groupBy == "document") c.getString("source_id") else c.optString("group_id", "").ifEmpty { c.getString("source_id") + "#" + Text.slugify(c.getJSONArray("section_path").let { a -> if (a.length() == 0) "Document" else (0 until a.length()).joinToString(" > ") { i -> a.getString(i) } }) }
+                        if (chunkGroup != gid) p.add("chunk group != example group for $ref")
                         // rights gate: only permitted_training == yes may feed examples
                         if (rights.getValue(c.getString("source_id")).getString("permitted_training") != "yes") p.add("example from source without training rights $ref")
                     }

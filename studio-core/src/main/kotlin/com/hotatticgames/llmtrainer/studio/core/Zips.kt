@@ -73,7 +73,7 @@ object Zips {
         } catch (e: PackageException) { throw e
         } catch (e: IOException) { throw PackageException("ZIP_CORRUPT", "not a readable zip file: ${e.message}")
         } catch (e: IllegalArgumentException) { throw PackageException("ZIP_CORRUPT", "not a readable zip file: ${e.message}") }
-        if (out.isEmpty()) throw PackageException("ZIP_EMPTY", "the zip file has no members")
+        if (out.isEmpty()) throw PackageException("ZIP_EMPTY", "not a zip file, or the zip file has no members")
         return out
     }
 

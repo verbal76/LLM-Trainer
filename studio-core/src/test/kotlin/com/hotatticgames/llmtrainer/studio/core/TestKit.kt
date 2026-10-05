@@ -95,7 +95,7 @@ object TK {
     fun rig(runner: TaskRunner = InlineTaskRunner, dir: File = tmp(), snap: String = snapshot()): Rig =
         Rig(dir, FakeHttp(), FixedClock(), FakeStorage(), runner, SeqIds()) { snap }
 
-    fun <T> StudioResult<T>.ok(): T = (this as? StudioResult.Ok)?.value ?: fail("expected Ok but got ${(this as StudioResult.Err).error}")
+    fun <T> StudioResult<T>.ok(): T = if (this is StudioResult.Ok) this.value else fail("expected Ok but got ${(this as StudioResult.Err).error}")
     fun <T> StudioResult<T>.err(): StudioError = (this as? StudioResult.Err)?.error ?: fail("expected Err but got Ok(${(this as StudioResult.Ok).value})")
 
     fun input(name: String, text: String, mime: String = "text/plain") = bytesInput(name, text.toByteArray(Charsets.UTF_8), mime)

@@ -124,7 +124,7 @@ object Cleaner {
                             val left = Regex("[A-Za-z]+(?:-[A-Za-z]+)*$").find(stem)
                             if (tail != null && left != null) {
                                 val hyphenated = (left.value + "-" + tail.value).lowercase()
-                                if ((vocab[hyphenated] ?: 0) > 0) { hyphKept++; merged.add(ln.text); continue }
+                                if ((vocab[hyphenated] ?: 0) > 0) { hyphKept++; merged[merged.size - 1] = prev.trimEnd() + ln.text; continue }   // real compound: keep the hyphen, drop the line break
                                 hyphFixed.add("${left.value}-|${tail.value}")
                                 merged[merged.size - 1] = stem + ln.text
                                 continue
