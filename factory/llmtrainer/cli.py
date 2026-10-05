@@ -127,6 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     from .specialize import cli_ext
 
     cli_ext.register(sub)
+    from .jobs import cli_ext as jobs_cli
+
+    jobs_cli.register(sub)
     return p
 
 
@@ -208,9 +211,19 @@ def _dispatch(a) -> int:
         return cli_ext.dispatch(a)
     elif a.cmd == "catalog":
         return _catalog(a)
+    elif a.cmd in _jobs_commands():
+        from .jobs import cli_ext as jobs_cli
+
+        return jobs_cli.dispatch(a)
     elif a.cmd == "export-schemas":
         _print([str(p) for p in schema_export.write_all(a.out_dir)])
     return 0
+
+
+def _jobs_commands() -> tuple[str, ...]:
+    from .jobs import cli_ext as jobs_cli
+
+    return jobs_cli.COMMANDS
 
 
 def _catalog(a) -> int:

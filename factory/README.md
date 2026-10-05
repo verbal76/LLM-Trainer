@@ -23,6 +23,14 @@ Quick end-to-end (pipeline-validation STUB, no GPU, no network, no real training
     llmtrainer validate-package /tmp/demo/exports/*
     python llmtrainer/consumer.py /tmp/demo/exports/* "shaft seal"   # stdlib-only reference consumer
 
+Studio phone <-> desktop jobs (formats: `../docs/studio/PACKAGE_FORMATS.md`; sample packages: `tests/fixtures/studio/`):
+
+    llmtrainer import-job job.zip --workspace /tmp/ws         # validate + rebuild; leakage re-verified, hostile zips rejected
+    llmtrainer run-job job.zip --workspace /tmp/ws2           # DRY-RUN: import, verify, plan training/eval, results zip
+    llmtrainer run-job job.zip --workspace /tmp/ws2 --execute # really train (GPU + 'train' extra) and evaluate; license gate applies
+    llmtrainer evaluate /tmp/ws --backend stub|hf [--execute] # held-out items only; stub = plumbing, can never allow a claim
+    llmtrainer export-results /tmp/ws --out results.zip
+
 Other commands: `remove-source`, `plan-removal`, `check-license`, `qualify-device`,
 `estimate-resources`, `export-schemas ../schemas`.
 
@@ -43,6 +51,7 @@ Other commands: `remove-source`, `plan-removal`, `check-license`, `qualify-devic
 | `packaging.py` | Export package builder and validator. |
 | `consumer.py` | Reference consumer; imports nothing from the factory. |
 | `pipeline.py` | Workspace operations behind the CLI. |
+| `jobs/` | Studio job packages: hostile-input-safe zip IO, job schema, `import-job` (owner license attestation -> `OWNER-ATTESTED` registry entry), Python-authoritative leakage re-verification, `evaluate` (stub/hf), `export-results`, `run-job`. |
 | `schema_export.py` | Generates `../schemas/v1/*.schema.json`. |
 | `data/registry/` | Bundled registry entry for the in-repo stub "model" only. |
 | `fixtures/synthetic_corpus/` | Invented, clearly synthetic documents (no third-party material). |

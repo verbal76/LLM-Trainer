@@ -233,13 +233,14 @@ checksums.json                    (same format as 0)
 ```
 
 * `status`: `completed` (real training and a non-stub evaluation executed) | `stub` (only pipeline-validation stubs ran; nothing here is a quality claim) |
-  `planned_only` (dry-run: nothing trained/evaluated) | `partial` (some stage failed/skipped) | `failed`.
+  `planned_only` (dry-run or refused: nothing trained/evaluated) | `no_training` (method `rag_only`/`prompt_only`: nothing to train) |
+  `partial` (some stage failed, or only part of the pipeline ran) | `failed`.
 * `specialist.kind`: `adapter` | `merged` | `none`. `none` = no parameter training happened (RAG-only, prompt-only, dry-run, or training not executed);
   `artifact_refs` is then `[]`. Refs are paths relative to the desktop run's output directory; artifact bytes are in the zip (`artifacts/<ref>`) only if
   listed in `included_artifacts`. `local_experiment: true` (run under an unverified license) means the artifacts can never be exported/packaged and are never included.
 * `license_state.state`: `VERIFIED|UNVERIFIED|CONDITIONAL|RESTRICTED` (as `schemas.LicenseState`, from the redistribution-grade gate, see 3);
   `owner_attested` true when the VERIFIED state rests on the owner attestation from the job. `export_allowed` mirrors `packaging.exportable` license part.
-* `stages[].stage`: `import|verify_dataset|train|evaluate|package_results`; `state`: `executed|planned|skipped|failed`.
+* `stages[].stage`: `import|verify_dataset|train|evaluate|package_results`; `state`: `executed|planned|skipped|refused|failed` (`refused` = a gate such as the license gate declined to run it; `planned` = dry-run, not run).
 
 ### 2.2 `evaluation_report.json` (phone-displayable)
 
@@ -320,7 +321,12 @@ Never overridden: a catalog entry with `state == DISALLOWED`; an entry the catal
 mismatching `model_id`; any missing field. Secondary-source claims never become VERIFIED.
 Anything produced under an UNVERIFIED model can run only as a local experiment (`--allow-unverified-license-for-local-experiment`) and is never exportable.
 
-## 5. Desktop commands
+## 5. Fixtures
+
+`factory/tests/fixtures/studio/` holds a sample job (attested and unattested), a corrupted job and three results packages for the Kotlin side;
+see the README there. `llmtrainer.jobs.results.validate_results_zip` is the reference results validator, `import_job` the reference job validator.
+
+## 6. Desktop commands
 
 ```
 llmtrainer import-job JOB.zip --workspace DIR
