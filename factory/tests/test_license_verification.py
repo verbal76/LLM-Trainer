@@ -156,7 +156,7 @@ def test_entry_without_verification_state_rejected():
 
 def test_shipped_registry_loads_and_has_no_unearned_verified():
     reg = LicenseRegistry.load(REGISTRY)
-    assert len(reg.entries) == 19
+    assert len(reg.entries) == 22
     for eid, e in reg.entries.items():
         v = e.verification
         if v.state == "VERIFIED":
