@@ -28,16 +28,24 @@ data class SourceDoc(
 }
 
 object IssueMap {
+    private val OCR = setOf("needs_ocr", "no_text_layer", "scanned")
+    private val UNSUPPORTED = setOf("unsupported_format", "unsupported")
+    private val EMPTY = setOf("empty_file", "empty_content", "no_usable_chunks", "no_extractable_content")
+    private val CORRUPT = setOf("encrypted", "corrupt_file", "corrupt_structured", "extractor_error", "unreadable", "undecodable_text", "not_found")
+    private val QUALITY = setOf("encoding_fallback", "ragged_rows", "undecodable_glyphs", "page_extract_failed")
+
+    /** Extractor issue codes are mapped explicitly; unknown ones fall back by severity. The original code always stays in the message. */
     fun map(x: XIssue): IngestIssue {
         val c = x.code.lowercase()
         val code = when {
-            c.contains("ocr") || c.contains("no_text_layer") || c.contains("scanned") -> IssueCode.NEEDS_OCR
-            c.contains("unsupported") -> IssueCode.UNSUPPORTED_TYPE
-            c.contains("too_large") || c.contains("limit") -> IssueCode.TOO_LARGE
-            c.contains("empty") || c.contains("no_usable") || c.contains("no_extractable") -> IssueCode.EMPTY_TEXT
-            c.contains("corrupt") || c.contains("error") || c.contains("encrypt") || c.contains("undecodable") || c.contains("password") ||
-                c.contains("unreadable") || c.contains("malformed") || c.contains("invalid") -> IssueCode.CORRUPT_FILE
-            else -> IssueCode.LOW_TEXT_QUALITY
+            c in OCR || c.contains("ocr") -> IssueCode.NEEDS_OCR
+            c in UNSUPPORTED -> IssueCode.UNSUPPORTED_TYPE
+            c.contains("too_large") -> IssueCode.TOO_LARGE
+            c in EMPTY -> IssueCode.EMPTY_TEXT
+            c in QUALITY -> IssueCode.LOW_TEXT_QUALITY
+            c in CORRUPT -> IssueCode.CORRUPT_FILE
+            x.severity == "warning" -> IssueCode.LOW_TEXT_QUALITY
+            else -> IssueCode.CORRUPT_FILE
         }
         val page = if (x.page != null) " (page ${x.page})" else ""
         return IngestIssue(code, "${x.detail}$page [${x.code}]")
