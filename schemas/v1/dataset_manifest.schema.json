@@ -40,6 +40,15 @@
           "title": "Group Id",
           "type": "string"
         },
+        "origin": {
+          "default": "source_derived",
+          "enum": [
+            "source_derived",
+            "synthetic"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
         "quality_score": {
           "title": "Quality Score",
           "type": "number"
