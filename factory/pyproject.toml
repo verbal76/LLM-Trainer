@@ -11,6 +11,7 @@ dependencies = ["pydantic>=2.6,<3"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+pdf = ["pypdf>=4"]  # optional, BSD-licensed PDF text extraction (no OCR)
 
 [project.scripts]
 llmtrainer = "llmtrainer.cli:main"

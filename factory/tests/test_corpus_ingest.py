@@ -178,3 +178,18 @@ def test_pdf_missing_dependency_message(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake)
     ex = extract("m.pdf", b"%PDF-1.4\n")
     assert ex.issues[0].code == "missing_dependency" and "pypdf" in ex.issues[0].detail
+
+
+def test_cli_ingest_and_inspect(tmp_path, capsys):
+    from llmtrainer.cli import main
+
+    main(["init", str(tmp_path / "p"), "--name", "C", "--domain", "d"])
+    (tmp_path / "a.txt").write_text(PROSE * 4)
+    (tmp_path / "b.docx").write_bytes(b"junk")
+    capsys.readouterr()
+    assert main(["ingest", str(tmp_path / "p"), str(tmp_path / "a.txt"), str(tmp_path / "b.docx"), "--rights-status", "owned"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert len(out["ingested"]) == 1 and out["issues"][0]["code"] == "corrupt_file"
+    assert main(["inspect-corpus", str(tmp_path / "p")]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert rep["totals"]["train"] >= 1 and rep["top_terms"]
