@@ -27,9 +27,9 @@ import java.util.zip.ZipInputStream
 /**
  * OTA qualification on a real Android runtime: real DexClassLoader, real filesystem, real signature
  * verification against the key embedded in this APK. Fixture bundles are produced by CI with the same
- * key (see .github/workflows/android.yml):
- *   bundle-2-good (v2), bundle-3-selftest (v3, selfTest fails), bundle-4-abi2 (v4, needs native ABI 2),
- *   bundle-5-throws (v5, entry constructor throws).
+ * key (tools/ci/build-fixtures.sh; the built-in bundle of this APK is #3 / "2.0" on native ABI 2):
+ *   bundle-4-good (#4, "2.1"), bundle-5-selftest (#5, selfTest fails), bundle-6-abi3 (#6, needs native ABI 3),
+ *   bundle-7-throws (#7, entry constructor throws), bundle-8-abi1 (#8, built for native ABI 1: obsolete here).
  */
 class OtaQualificationTest {
     private val instr = InstrumentationRegistry.getInstrumentation()
@@ -102,6 +102,94 @@ class OtaQualificationTest {
         assertEquals("builtin", d.getString("runningSource"))
     }
 
+    @Test fun diagnosticsAreTruthfulWhileTheBundleBuildsItsView() {
+        // The bundle reads diagnostics inside createContentView (and in entry.create / selfTest via the host services).
+        val rt = runtime(freshRoot())
+        val seen = mutableListOf<JSONObject>()
+        val r = rt.boot { app ->
+            var v: View? = null
+            instr.runOnMainSync {
+                seen += JSONObject(rt.diagnosticsJson())
+                v = app.createContentView(target)
+                seen += JSONObject(rt.diagnosticsJson())
+            }
+            v!!
+        }
+        assertNotNull(r)
+        assertEquals(2, seen.size)
+        for (d in seen) {
+            assertEquals("builtin", d.getString("runningSource"))
+            assertEquals(BuildConfig.BUILTIN_BUNDLE_VERSION, d.getInt("runningBundleVersion"))
+            assertFalse(d.getString("runningBundleName") == "-")
+            val id = d.getJSONObject("identity")
+            assertEquals(BuildConfig.VERSION_NAME, id.getString("nativeVersion"))
+            assertEquals(r!!.versionName, id.getString("appVersion"))
+            assertEquals(BuildConfig.BUILTIN_BUNDLE_VERSION, id.getInt("otaSequence"))
+            assertEquals(BuildConfig.NATIVE_ABI, id.getInt("nativeAbi"))
+            assertEquals(BuildConfig.NATIVE_RUNTIME_ID, id.getString("nativeRuntimeId"))
+            assertEquals(BuildConfig.GIT_SHA, id.getString("sourceSha"))
+            val block = d.getString("identityBlock")
+            assertFalse("identity block must never say none/v0: $block", block.contains("safe mode") || block.contains("#0") || block.contains("v0"))
+        }
+        // Native version convention: application major == native version.
+        assertEquals(BuildConfig.VERSION_NAME, r!!.versionName.substringBefore('.'))
+    }
+
+    @Test fun identityBlockHasAllFiveIdentities() {
+        val rt = runtime(freshRoot()); boot(rt)
+        val b = rt.identityBlock()
+        for (label in listOf("Native version: ", "Application version: ", "OTA sequence: #", "Runtime: ABI ", "Source: ")) {
+            assertTrue("missing '$label' in\n$b", b.contains(label))
+        }
+    }
+
+    @Test fun missingChannelIsACleanUpToDate() {
+        val notFound = object : Fetcher {
+            override fun getBytes(url: String, maxBytes: Long): ByteArray = throw com.hotatticgames.llmtrainer.ota.HttpStatusException(404, "HTTP 404")
+            override fun download(url: String, dest: File, maxBytes: Long) = throw com.hotatticgames.llmtrainer.ota.HttpStatusException(404, "HTTP 404")
+        }
+        val s = check(runtime(freshRoot(), notFound))
+        assertEquals("UP_TO_DATE", s.kind)
+        assertTrue(s.message, s.message.contains("No update channel is published yet"))
+    }
+
+    @Test fun networkAndServerFailuresAreDistinctFailures() {
+        fun failing(t: () -> Throwable) = object : Fetcher {
+            override fun getBytes(url: String, maxBytes: Long): ByteArray = throw t()
+            override fun download(url: String, dest: File, maxBytes: Long) = throw t()
+        }
+        val net = check(runtime(freshRoot(), failing { java.net.UnknownHostException("github.com") }))
+        assertEquals("FAILED", net.kind); assertTrue(net.message, net.message.contains("offline or network", ignoreCase = true))
+        val srv = check(runtime(freshRoot(), failing { com.hotatticgames.llmtrainer.ota.HttpStatusException(503, "HTTP 503") }))
+        assertEquals("FAILED", srv.kind); assertTrue(srv.message, srv.message.contains("server", ignoreCase = true))
+    }
+
+    @Test fun obsoleteAbi1BundleIsIgnoredByThisAbi2Host() {
+        assertEquals(2, BuildConfig.NATIVE_ABI)
+        val root = freshRoot()
+        val f = ChannelFetcher(mapOf("abi1" to fixture("bundle-8-abi1")))
+        val s = check(runtime(root, f))
+        assertEquals("UP_TO_DATE", s.kind)
+        assertTrue(f.downloads.isEmpty())
+        assertNull(runtime(root, f).store.load().pending)
+    }
+
+    @Test fun abi1SlotLeftByAV1ApkIsDroppedOnFirstBoot() {
+        // Simulate in-place upgrade v1 -> v2: v1 left a staged abi-1 slot (pre-ABI-field state.json).
+        val root = freshRoot()
+        val seed = com.hotatticgames.llmtrainer.ota.UpdateStore(root)
+        val bytes = fixture("bundle-8-abi1")
+        val v1Host = com.hotatticgames.llmtrainer.ota.HostInfo(1, "1", 1, 1, "none-v1", setOf("core.v1", "device.snapshot.v1", "update.check.v1"), 34, "llmtrainer-main", "stable", 1)
+        val tmp = File(root, "seed.hagb").also { it.writeBytes(bytes) }
+        val ok = (com.hotatticgames.llmtrainer.ota.BundleFormat.verify(tmp, listOf(com.hotatticgames.llmtrainer.ota.TrustedKey(BuildConfig.OTA_KEY_ID, BuildConfig.OTA_PUBLIC_KEY)), v1Host)
+            as com.hotatticgames.llmtrainer.ota.BundleFormat.Result.Ok).bundle
+        seed.stage(ok, Hashing.sha256Hex(bytes), 1)
+        assertNotNull(seed.load().pending)
+        val r = boot(runtime(root))!!
+        assertEquals("builtin", r.source)
+        assertTrue(runtime(root).store.load().slots.isEmpty())
+    }
+
     @Test fun studioLogoAssetIsTheExactCanonicalFile() {
         val bytes = target.assets.open("branding/studio-logo.png").readBytes()
         assertEquals("e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e", Hashing.sha256Hex(bytes))
@@ -109,13 +197,13 @@ class OtaQualificationTest {
 
     @Test fun fullOtaCycleStagesRestartsAndPromotes() {
         val root = freshRoot()
-        val fetcher = ChannelFetcher(mapOf("good" to fixture("bundle-2-good")))
+        val fetcher = ChannelFetcher(mapOf("good" to fixture("bundle-4-good")))
         assertEquals("STAGED", check(runtime(root, fetcher)).kind)
 
         val rt2 = runtime(root, fetcher) // simulated app restart: new runtime, same on-disk state
         val r = boot(rt2)!!
         assertEquals("ota", r.source)
-        assertEquals(2, r.version)
+        assertEquals(4, r.version)
         rt2.onFirstFrame()
         val st = rt2.store.load()
         assertEquals(r.slotId, st.active); assertEquals(r.slotId, st.lastKnownGood); assertNull(st.pending)
@@ -124,16 +212,16 @@ class OtaQualificationTest {
 
     @Test fun badUpdatesRollBackToLastKnownGood() {
         val root = freshRoot()
-        val good = ChannelFetcher(mapOf("good" to fixture("bundle-2-good")))
+        val good = ChannelFetcher(mapOf("good" to fixture("bundle-4-good")))
         check(runtime(root, good))
         val rtA = runtime(root, good); val a = boot(rtA)!!; rtA.onFirstFrame()
 
-        for ((name, version) in listOf("bundle-3-selftest" to 3, "bundle-5-throws" to 5)) {
+        for ((name, version) in listOf("bundle-5-selftest" to 5, "bundle-7-throws" to 7)) {
             val f = ChannelFetcher(mapOf(name to fixture(name)))
             assertEquals("STAGED", check(runtime(root, f)).kind)
             val rt = runtime(root, f)
             val r = boot(rt)!!
-            assertEquals("must fall back to v2 after v$version fails; history=" + rt.store.load().history.takeLast(10).joinToString(" | ") { it.event + ":" + it.detail }, 2, r.version)
+            assertEquals("must fall back to v4 after v$version fails; history=" + rt.store.load().history.takeLast(10).joinToString(" | ") { it.event + ":" + it.detail }, 4, r.version)
             assertEquals(a.slotId, r.slotId)
             assertTrue(rt.store.load().quarantined.keys.any { it.startsWith("v$version-") })
         }
@@ -141,7 +229,7 @@ class OtaQualificationTest {
 
     @Test fun crashLoopingTrialIsQuarantinedAndBuiltinTakesOver() {
         val root = freshRoot()
-        val f = ChannelFetcher(mapOf("good" to fixture("bundle-2-good")))
+        val f = ChannelFetcher(mapOf("good" to fixture("bundle-4-good")))
         check(runtime(root, f))
         // Two starts that never reach a first frame (process died): budget for a trial is 2.
         repeat(2) { assertEquals("ota", boot(runtime(root, f))!!.source) }
@@ -151,7 +239,7 @@ class OtaQualificationTest {
 
     @Test fun incompatibleNativeBundleIsRefusedAndNeverInstalled() {
         val root = freshRoot()
-        val f = ChannelFetcher(mapOf("abi2" to fixture("bundle-4-abi2")))
+        val f = ChannelFetcher(mapOf("abi3" to fixture("bundle-6-abi3")))
         val s = check(runtime(root, f))
         assertEquals("NEEDS_NEW_APK", s.kind)
         assertTrue(f.downloads.isEmpty())
@@ -159,7 +247,7 @@ class OtaQualificationTest {
     }
 
     @Test fun tamperedBundleWithMatchingIndexHashIsRejected() {
-        val bytes = fixture("bundle-2-good").copyOf()
+        val bytes = fixture("bundle-4-good").copyOf()
         bytes[bytes.size / 2] = (bytes[bytes.size / 2] + 1).toByte()
         val root = freshRoot()
         // The index lies and even carries the tampered file's hash; the signed manifest must still catch it.
@@ -168,7 +256,7 @@ class OtaQualificationTest {
                 ChannelIndex.serializer(),
                 ChannelIndex(
                     CHANNEL_SCHEMA, "llmtrainer-main", "stable", "now",
-                    listOf(ChannelEntry(2, "1.0.2", "https://test.invalid/t.hagb", Hashing.sha256Hex(bytes), bytes.size.toLong(), ChannelFetcher.manifestOf(fixture("bundle-2-good")).requires)),
+                    listOf(ChannelEntry(4, "2.1", "https://test.invalid/t.hagb", Hashing.sha256Hex(bytes), bytes.size.toLong(), ChannelFetcher.manifestOf(fixture("bundle-4-good")).requires)),
                 ),
             ).toByteArray()
             override fun getBytes(url: String, maxBytes: Long) = idx

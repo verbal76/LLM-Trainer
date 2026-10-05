@@ -59,14 +59,7 @@ jobs:
         run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
 
       - name: Build OTA qualification fixtures
-        run: |
-          K="-PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaKeyId=ci"
-          F="$PWD/fixtures/ota-fixtures"; mkdir -p "$F"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=2 -PbundleOut="$F/bundle-2-good.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=3 -PfaultMode=selftest_fails -PbundleOut="$F/bundle-3-selftest.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=4 -PnativeAbi=2 -PbundleOut="$F/bundle-4-abi2.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=5 -PfaultMode=entry_throws -PbundleOut="$F/bundle-5-throws.hagb"
-          ls -l "$F"
+        run: tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
 
       - name: Build APKs
         run: |
