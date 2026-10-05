@@ -21,6 +21,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: OTA core unit tests
         run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
+      - name: JNI bridge + Kotlin binding on a plain JVM against a stub C engine (-Xcheck:jni; no Android SDK needed)
+        run: runtime/host-test/run.sh
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Factory tests
@@ -40,36 +42,44 @@ jobs:
           git -C .. diff --exit-code -- schemas
 
   android:
-    name: Android build + OTA qualification (emulator)
+    name: Android build + 16 KB packaging + OTA/engine wiring (emulator)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
+      - name: Native toolchain pins (single source of truth is gradle.properties)
+        id: pins
+        run: |
+          echo "ndk=$(sed -n 's/^hag.ndkVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+          echo "cmake=$(sed -n 's/^hag.cmakeVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+      # ubuntu-24.04 runner images preinstall NDK 27.3 (default), 28.2.13676358 (r28c) and 29.x. We pin r28c explicitly
+      # and install it here if an image ever stops carrying it.
       - uses: android-actions/setup-android@v3
         with:
-          packages: "platforms;android-36 build-tools;36.0.0"
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}"
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: runtime/build/llama.cpp
+          key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
 
       - name: Brand asset is the exact canonical logo
         run: echo "e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e  branding/hot-attic-games/studio-logo.png" | sha256sum -c -
+
+      - name: JVM unit tests of the Android-side modules (host API rules, runtime handle/UTF-8/unavailable paths)
+        run: ./gradlew --no-daemon :host-api:test :runtime:testDebugUnitTest
 
       - name: Ephemeral CI OTA key (CI builds only; releases use the real key)
         run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
 
       - name: Build OTA qualification fixtures
-        run: |
-          K="-PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaKeyId=ci"
-          F="$PWD/fixtures/ota-fixtures"; mkdir -p "$F"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=2 -PbundleOut="$F/bundle-2-good.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=3 -PfaultMode=selftest_fails -PbundleOut="$F/bundle-3-selftest.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=4 -PnativeAbi=2 -PbundleOut="$F/bundle-4-abi2.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=5 -PfaultMode=entry_throws -PbundleOut="$F/bundle-5-throws.hagb"
-          ls -l "$F"
+        run: tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
 
-      - name: Build APKs
+      - name: Build APKs (native engine for arm64-v8a + x86_64)
         run: |
+          echo "NDK pin: ${{ steps.pins.outputs.ndk }}; installed:"; ls "$ANDROID_HOME/ndk" || true
           ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease \
             -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
 
@@ -77,7 +87,11 @@ jobs:
         run: |
           echo "--- generated assets"; find app/build/generated/hag-assets -type f -exec ls -l {} + || true
           echo "--- bundle outputs"; find bundle/build/ota -maxdepth 1 -type f -exec ls -l {} + || true
-          echo "--- debug apk assets"; unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/" || true
+          echo "--- debug apk assets + libs"; unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/|lib/" || true
+          echo "--- release apk libs"; unzip -l app/build/outputs/apk/release/app-release.apk | grep -E "lib/" || true
+
+      - name: 16 KB page-size + native packaging gate (debug APK)
+        run: tools/ci/check-16kb.sh app/build/outputs/apk/debug/app-debug.apk debug
 
       - name: Release-path rehearsal (throwaway keystore, ephemeral OTA key)
         run: |
@@ -89,6 +103,7 @@ jobs:
             -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
           cp app/build/outputs/apk/release/app-release.apk LLM-Trainer-rehearsal.apk
           tools/ci/verify-apk.sh LLM-Trainer-rehearsal.apk "$RUNNER_TEMP/ci-ota.pub" ci 0-rehearsal
+          tools/ci/check-16kb.sh LLM-Trainer-rehearsal.apk release
 
       - name: Logo inside APK is byte-identical
         run: |
@@ -101,17 +116,18 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
 
-      - name: OTA qualification on emulator
+      - name: OTA + host/engine wiring qualification on emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CI_KEY: ${{ runner.temp }}/ci-ota
+          FIXTURES: ${{ github.workspace }}/fixtures
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: |
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures; rc=$?
-            adb logcat -d -s HagOta:V AndroidRuntime:E | tail -80
-            exit $rc
+          # ONE line: the action runs each script line in its own shell, so the script itself must carry the exit status.
+          script: bash tools/ci/run-app-tests.sh
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -121,4 +137,94 @@ jobs:
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
             ota-core/build/reports
+          if-no-files-found: ignore
+
+  native-engine:
+    name: Native engine on emulator (${{ matrix.id }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: api36, target: google_apis }
+          - { id: ps16k, target: google_apis_ps16k }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Native toolchain pins
+        id: pins
+        run: |
+          echo "ndk=$(sed -n 's/^hag.ndkVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+          echo "cmake=$(sed -n 's/^hag.cmakeVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}"
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The 16 KB page-size image is probed, not assumed (see tools/ci/resolve-emulator-image.sh).
+      - name: Resolve emulator system image
+        id: img
+        run: tools/ci/resolve-emulator-image.sh "${{ matrix.target }}" 36
+
+      - uses: actions/cache@v4
+        with:
+          path: runtime/build/llama.cpp
+          key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/hag-models
+          key: hag-models-smollm2-135m-instruct-v1
+
+      - name: Fetch + verify real test models (sha256 and size taken from the Hugging Face API)
+        run: python3 tools/ci/fetch-test-models.py "$HOME/hag-models" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Ephemeral CI OTA key + fixtures
+        run: |
+          ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
+          tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
+
+      - name: Pre-build native engine + test APKs (x86_64)
+        if: steps.img.outputs.available == 'true'
+        run: |
+          ./gradlew --no-daemon -Phag.abis=x86_64 :runtime:assembleDebugAndroidTest :app:assembleDebugAndroidTest \
+            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures
+          find runtime/build -name 'lib*.so' -path '*x86_64*' -exec ls -l {} + | head
+
+      - name: Enable KVM
+        if: steps.img.outputs.available == 'true'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+
+      - name: Engine tests on emulator (API ${{ steps.img.outputs.api }}, ${{ matrix.target }})
+        if: steps.img.outputs.available == 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          EXPECT_PAGE_SIZE: ${{ matrix.id == 'ps16k' && '16384' || '' }}
+          HAG_ABIS: x86_64
+          CI_KEY: ${{ runner.temp }}/ci-ota
+          FIXTURES: ${{ github.workspace }}/fixtures
+          MODELS_DIR: /home/runner/hag-models
+        with:
+          api-level: ${{ steps.img.outputs.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          cores: 4
+          ram-size: 6144M
+          heap-size: 1024M
+          disk-size: 10G
+          disable-animations: true
+          script: bash tools/ci/run-native-tests.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-engine-reports-${{ matrix.id }}
+          path: |
+            runtime/build/reports/androidTests
+            runtime/build/outputs/androidTest-results
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
           if-no-files-found: ignore

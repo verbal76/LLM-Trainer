@@ -1,0 +1,91 @@
+name: Catalog refresh
+
+# Reads the REAL downloadable-artifact facts (commit sha, file names, sizes, LFS sha256, GGUF header, license text and
+# model-card license) from huggingface.co, which the authoring sandbox cannot reach. Results are uploaded as a workflow
+# artifact AND pushed to the branch `catalog-data` so they can be fetched with plain git:
+#
+#     git fetch origin catalog-data && git checkout catalog-data -- registry/artifacts
+#
+# Trigger: push to branch `catalog/refresh`, or manually (workflow_dispatch). Nothing is ever downloaded in full: model
+# files are only sampled with HTTP Range requests (GGUF header). HF_TOKEN is optional (higher rate limits).
+
+on:
+  push:
+    branches: ["catalog/refresh"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalog-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh registry/artifacts from Hugging Face
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Offline unit tests of the refresh script
+        run: |
+          pip install pytest
+          python -m pytest -q scripts/catalog/tests
+
+      - name: Refresh from Hugging Face
+        id: refresh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set +e
+          python scripts/catalog/refresh_catalog.py
+          rc=$?
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          echo "## Catalog refresh" >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          i = json.load(open("registry/artifacts/index.json"))
+          print(f"refreshed_at {i['refreshed_at']} - ok={i['ok']}\n")
+          print("| artifact | outcome | license | revision |\n|---|---|---|---|")
+          for r in i["results"]:
+              print(f"| {r['id']} | {r['outcome']} | {r.get('license_state','')} | {(r.get('revision') or '')[:12]} |")
+          for e in i["errors"]:
+              print(f"\n- ERROR {e}")
+          PY
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-artifacts
+          path: |
+            registry/artifacts/*.json
+            registry/licenses/*
+          if-no-files-found: error
+
+      - name: Offline consistency check of the refreshed registry
+        run: python scripts/catalog/refresh_catalog.py --check-scaffold
+
+      - name: Push result to branch catalog-data
+        run: |
+          git config user.name "catalog-refresh"
+          git config user.email "catalog-refresh@users.noreply.github.com"
+          git checkout -B catalog-data
+          git add registry/artifacts
+          if git diff --cached --quiet; then
+            echo "no change in registry/artifacts"
+          else
+            git commit -m "catalog-data: refresh registry/artifacts from Hugging Face (${GITHUB_SHA::7})"
+          fi
+          git push --force origin catalog-data
+
+      - name: Fail the job if any required artifact could not be refreshed
+        if: steps.refresh.outputs.exit_code != '0'
+        run: |
+          echo "refresh_catalog.py exited ${{ steps.refresh.outputs.exit_code }} (see the summary); partial results were still published."
+          exit 1

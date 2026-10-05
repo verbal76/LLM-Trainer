@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "model_family": "SmolLM2",
+  "exact_version": "SmolLM2-360M-Instruct",
+  "hf_repo_or_source": "HuggingFaceTB/SmolLM2-360M-Instruct",
+  "parameter_count": "0.36B (nominal, 360M)",
+  "license_id": "Apache-2.0",
+  "license_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/blob/main/LICENSE (model card states Apache-2.0; not fetched)",
+  "commercial_use": "yes",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Apache-2.0 s.4: redistributors must include a copy of the License, retain copyright/attribution notices, and mark modified files with prominent change notices (verified against apache.org text).",
+    "Apache-2.0 s.6: no trademark license; do not imply endorsement by the model publisher.",
+    "Apache-2.0 s.3: patent licenses terminate if the licensee sues alleging the Work infringes a patent.",
+    "Training-data provenance of the base model is NOT covered by this registry entry; the license of the weights does not by itself settle rights in the pretraining data (not assessed)."
+  ],
+  "supported_formats": [
+    "safetensors (Hugging Face transformers)",
+    "GGUF (llama.cpp, llama architecture)"
+  ],
+  "context_length": null,
+  "architecture": {
+    "layers": null,
+    "kv_heads": null,
+    "head_dim": null,
+    "hidden_size": null,
+    "attention": null,
+    "notes": "Llama-architecture dense transformer (family). Geometry not recorded here; see registry/artifacts."
+  },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id. Downloadable GGUF files are tracked in registry/artifacts/ (CI-refreshed)."
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)",
+      "ExecuTorch"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
+  "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
+    "source_urls": [
+      "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct",
+      "https://www.apache.org/licenses/LICENSE-2.0.txt"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Added for the phone-first starter set. License identity (Apache-2.0) is a model-card claim recorded from secondary knowledge; the LICENSE text was not read in this round (huggingface.co unreachable). The catalog-refresh CI job verifies the GGUF repo's text against the canonical Apache-2.0 text.",
+      "Layer/head/context geometry is NOT recorded here; the CI-refreshed GGUF artifacts carry the real values read from the GGUF header."
+    ]
+  }
+}

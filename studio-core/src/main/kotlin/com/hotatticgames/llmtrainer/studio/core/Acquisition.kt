@@ -41,7 +41,7 @@ class AcquisitionService(
 
     private class Op(
         var op: Operation, val variantId: String, val url: String?, val use: IntendedUse, val expectedSize: Long?, val expectedSha: String?,
-        val fileName: String,
+        val fileName: String, val userImport: Boolean = false,
     )
 
     companion object {
@@ -78,7 +78,7 @@ class AcquisitionService(
                 val use = o.obj("use")?.let { IntendedUse(it.bool("fine_tune") ?: true, it.bool("adapter") ?: true, it.bool("commercial") ?: false, it.bool("redistribute") ?: false) } ?: IntendedUse()
                 val op = Operation(id, kind, o.str("project_id")?.let(::ProjectId), o.str("subject") ?: "", state,
                     Progress(progressDone, o.lng("total") ?: -1L, "bytes"), msg, err, resumable, o.lng("created_at") ?: 0L, o.lng("updated_at") ?: 0L)
-                val rec = Op(op, o.str("variant_id")!!, o.str("url"), use, o.lng("expected_size"), o.str("expected_sha"), o.str("file_name")!!)
+                val rec = Op(op, o.str("variant_id")!!, o.str("url"), use, o.lng("expected_size"), o.str("expected_sha"), o.str("file_name")!!, o.bool("user_import") ?: false)
                 ops[id] = rec
                 if (dirty) persist(rec)
             } catch (e: Exception) { problems.add("operation file ${f.name} is unreadable and was ignored") }
@@ -114,7 +114,7 @@ class AcquisitionService(
                 "error" to o.error?.let { mapOf("code" to it.code, "message" to it.message) }, "resumable" to o.resumable,
                 "created_at" to o.createdAt, "updated_at" to o.updatedAt, "variant_id" to r.variantId, "url" to r.url,
                 "use" to mapOf("fine_tune" to r.use.fineTune, "adapter" to r.use.adapter, "commercial" to r.use.commercial, "redistribute" to r.use.redistribute),
-                "expected_size" to r.expectedSize, "expected_sha" to r.expectedSha, "file_name" to r.fileName))
+                "expected_size" to r.expectedSize, "expected_sha" to r.expectedSha, "file_name" to r.fileName, "user_import" to r.userImport))
         } catch (e: IOException) { problems.add("could not persist operation ${o.id}: ${e.message}") }
     }
 
@@ -148,6 +148,13 @@ class AcquisitionService(
         blocking.addAll(licenses.gate(e, use))
         val url = v.directUrl
         when {
+            v.artifactBlock != null -> blocking.add(Blocker(
+                when (v.artifactBlock) { "unrefreshed" -> "ARTIFACT_UNREFRESHED"; "not_published" -> "ARTIFACT_NOT_PUBLISHED"; else -> "ARTIFACT_INCOMPLETE" },
+                when (v.artifactBlock) {
+                    "unrefreshed" -> "This model file's download details (exact revision, size and checksum) have not been verified yet: the catalog has not been refreshed from the model hub. It cannot be downloaded until then; you can import the file manually instead"
+                    "not_published" -> "The model hub does not publish this file"
+                    else -> "This model file's catalog entry is incomplete (${v.artifactBlock}); it cannot be downloaded"
+                }))
             v.sourceUrl == null -> blocking.add(Blocker("NO_DOWNLOAD_URL", "No source URL is recorded for this variant; import the model file instead"))
             !v.sourceUrl.startsWith("https://") -> blocking.add(Blocker("NOT_HTTPS", "Only HTTPS downloads are allowed"))
             url == null -> blocking.add(Blocker("NO_DOWNLOAD_URL", "The recorded source is a repository page, not a downloadable file; import the model file instead"))
@@ -193,49 +200,130 @@ class AcquisitionService(
         return StudioResult.Ok(synchronized(lock) { ops.getValue(rec.op.id).op })
     }
 
+    private fun verifyMismatch(opId: String, part: File, code: String, msg: String, short: String) {
+        part.delete()
+        update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Invalid(code, msg), message = short, resumable = false) }
+    }
+
+    /**
+     * Crash recovery: the previous run moved a VERIFIED file into place but died before writing the install manifest.
+     * The file is adopted only if size AND sha256 equal the expectation (streaming hash); otherwise it is left alone.
+     */
+    private fun adoptOrphan(r: Op, final: File): Boolean {
+        val es = r.expectedSize
+        val sha = r.expectedSha
+        if (es == null || sha == null || !final.isFile || final.length() != es || files.isAcquired(r.variantId)) return false
+        if (Hashing.sha256File(final) != sha) return false
+        writeManifest(r, final, sha, final.length(), "download", null, true)
+        return true
+    }
+
+    private fun fsync(f: File) {
+        try { java.io.RandomAccessFile(f, "rw").use { it.fd.sync() } } catch (_: IOException) { /* best effort: some filesystems refuse */ }
+    }
+
+    private fun moveInto(part: File, final: File) {
+        try { java.nio.file.Files.move(part.toPath(), final.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+        catch (e: java.nio.file.AtomicMoveNotSupportedException) { java.nio.file.Files.move(part.toPath(), final.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+    }
+
+    /** Writes the per-artifact install manifest (schema 2): path, size, sha256, source, license state at install time, provenance. */
+    private fun writeManifest(r: Op, final: File, sha: String, size: Long, source: String, originalName: String?, verifiedAgainstRegistry: Boolean) {
+        val fv = if (r.userImport) null else catalog.findVariant(r.variantId)
+        val lic = fv?.first?.let { licenses.effective(it) }
+        val art = fv?.second?.artifact
+        val info = if (r.userImport || source == "user_import") GgufHeader.read(final) else null
+        val provenance = when {
+            source == "download" && verifiedAgainstRegistry -> InstallProvenance.VERIFIED_DOWNLOAD
+            source == "download" -> InstallProvenance.DOWNLOAD_UNVERIFIED_CHECKSUM
+            source == "import" && verifiedAgainstRegistry -> InstallProvenance.VERIFIED_IMPORT
+            else -> InstallProvenance.UNVERIFIED
+        }
+        val m = linkedMapOf<String, Any?>(
+            "schema" to 2, "variant_id" to r.variantId, "file" to final.name, "path" to final.absolutePath, "size" to size, "sha256" to sha, "source" to source,
+            "url" to r.url, "revision" to art?.revision, "artifact_id" to art?.id, "repo" to art?.repo, "original_name" to originalName, "at" to clock.nowMs(),
+            "checksum_verified_against_registry" to verifiedAgainstRegistry, "expected_sha256" to r.expectedSha, "provenance" to provenance,
+            "license_state" to (lic?.state?.name ?: "UNVERIFIED"), "license_id" to lic?.licenseName, "license_evidence_level" to lic?.evidenceLevel,
+            "license_text_sha256" to lic?.textSha256,
+            "architecture" to info?.architecture, "layers" to info?.layers, "parameter_count" to info?.parameterCount, "chat_template_present" to info?.chatTemplatePresent,
+        )
+        Fs.writeJson(files.acquiredRecord(r.variantId), m)
+    }
+
     private fun runDownload(opId: String) {
         val r = synchronized(lock) { ops[opId] } ?: return
         val flag = cancelFlags.getOrPut(opId) { AtomicBoolean(false) }
         if (flag.get()) return
         val dir = files.dirOf(r.variantId)
         val part = File(dir, r.fileName + ".part")
+        val final = File(dir, r.fileName)
         try {
             dir.mkdirs()
             update(opId) { it.copy(state = OperationState.RUNNING, message = if (part.length() > 0) "Resuming from ${fmtBytes(part.length())}" else "Starting download", error = null, resumable = true) }
+            if (adoptOrphan(r, final)) {
+                update(opId) { it.copy(state = OperationState.SUCCEEDED, progress = Progress(final.length(), final.length(), "bytes"), message = "Already downloaded and verified", resumable = false, error = null) }
+                return
+            }
+            // A partial file longer than the whole file is corrupt: start over instead of asking the server for an impossible range.
+            if (r.expectedSize != null && part.length() > r.expectedSize) part.delete()
             val reserve = reserveBytes()
             val remaining = (r.expectedSize ?: 0L) - part.length()
             if (r.expectedSize != null && storage.freeBytes(dir) - remaining < reserve) {
                 update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Io("Not enough free storage to finish this download while keeping the safety reserve"), message = "Not enough free storage", resumable = part.isFile) }
                 return
             }
-            var lastPersist = 0L
-            val out = http.downloadToFile(r.url!!, part, r.expectedSize?.let { it + MIB } ?: MAX_DOWNLOAD, { flag.get() }, { done, total ->
-                val now = clock.nowMs()
-                val force = now - lastPersist > 750
-                if (force) lastPersist = now
-                update(opId, force) { it.copy(progress = Progress(done, if (total >= 0) total else it.progress.total, "bytes"), message = "Downloading") }
-            })
-            if (r.expectedSize != null && out.bytesOnDisk != r.expectedSize) {
-                part.delete()
-                update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Invalid("SIZE_MISMATCH", "Downloaded ${out.bytesOnDisk} bytes but ${r.expectedSize} were expected; the partial file was removed"), message = "Size mismatch", resumable = false) }
+            // Mid-transfer guard: never eat the last of the device's storage (other apps may write meanwhile).
+            val floor = maxOf(256L * MIB, reserve / 4)
+            var attempt = 0
+            var sha = ""
+            while (true) {
+                val resumed = part.isFile && part.length() > 0
+                if (r.expectedSize == null || part.length() != r.expectedSize) {     // a complete partial only needs verifying
+                    var lastPersist = 0L
+                    var lastProbe = part.length()
+                    http.downloadToFile(r.url!!, part, r.expectedSize?.let { it + MIB } ?: MAX_DOWNLOAD, { flag.get() }, { done, total ->
+                        if (done - lastProbe >= 64L * MIB) {
+                            lastProbe = done
+                            if (storage.freeBytes(dir) < floor) throw HttpException(HttpException.Kind.STORAGE, "Free storage fell below the safety floor (${fmtBytes(floor)})")
+                        }
+                        val now = clock.nowMs()
+                        val force = now - lastPersist > 750
+                        if (force) lastPersist = now
+                        update(opId, force) { it.copy(progress = Progress(done, if (total >= 0) total else it.progress.total, "bytes"), message = "Downloading") }
+                    })
+                }
+                fsync(part)
+                val onDisk = part.length()
+                var bad: Triple<String, String, String>? = null
+                if (r.expectedSize != null && onDisk != r.expectedSize) {
+                    bad = Triple("SIZE_MISMATCH", "Downloaded $onDisk bytes but ${r.expectedSize} were expected; the partial file was removed", "Size mismatch")
+                    sha = ""
+                } else {
+                    update(opId) { it.copy(message = "Verifying checksum") }
+                    sha = Hashing.sha256File(part)           // streaming: never buffers the file
+                    if (r.expectedSha != null && r.expectedSha != sha)
+                        bad = Triple("HASH_MISMATCH", "The downloaded file does not match the recorded checksum; it was removed", "Checksum mismatch")
+                }
+                if (bad == null) break
+                if (resumed && attempt == 0) {
+                    // Corrupt-download recovery: data resumed from an earlier run did not verify; delete it and restart ONCE from zero.
+                    part.delete()
+                    attempt++
+                    update(opId) { it.copy(progress = Progress(0, it.progress.total, "bytes"), message = "Resumed data did not verify; restarting from the beginning") }
+                    continue
+                }
+                verifyMismatch(opId, part, bad.first, bad.second, bad.third)
                 return
             }
-            update(opId) { it.copy(message = "Verifying checksum") }
-            val sha = Hashing.sha256File(part)
-            if (r.expectedSha != null && r.expectedSha != sha) {
-                part.delete()
-                update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Invalid("HASH_MISMATCH", "The downloaded file does not match the recorded checksum; it was removed"), message = "Checksum mismatch", resumable = false) }
-                return
-            }
-            val final = File(dir, r.fileName)
-            java.nio.file.Files.move(part.toPath(), final.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            Fs.writeJson(files.acquiredRecord(r.variantId), linkedMapOf("schema" to 1, "file" to final.name, "sha256" to sha, "size" to final.length(),
-                "source" to "download", "url" to r.url, "at" to clock.nowMs(), "checksum_verified_against_registry" to (r.expectedSha != null)))
+            moveInto(part, final)         // the file becomes visible only now, after verification
+            writeManifest(r, final, sha, final.length(), "download", null, r.expectedSha != null)
             update(opId) { it.copy(state = OperationState.SUCCEEDED, progress = Progress(final.length(), final.length(), "bytes"), message = "Downloaded" + if (r.expectedSha == null) " (no registry checksum to verify against; sha256 recorded)" else " and verified", resumable = false, error = null) }
         } catch (e: HttpException) {
             if (e.kind == HttpException.Kind.CANCELLED || flag.get()) {
                 part.delete()
                 update(opId) { it.copy(state = OperationState.CANCELLED, resumable = false, message = "Cancelled; partial file removed", error = null) }
+            } else if (e.kind == HttpException.Kind.STORAGE) {
+                update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Io("The device ran out of storage: free some space, then resume. The partial file was kept. (${e.message})"), message = "Out of storage", resumable = part.isFile) }
             } else {
                 val keep = part.isFile && e.kind != HttpException.Kind.NOT_HTTPS && e.kind != HttpException.Kind.TOO_LARGE
                 if (!keep) part.delete()
@@ -307,11 +395,24 @@ class AcquisitionService(
                 update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Invalid("HASH_MISMATCH", "The file does not match the checksum recorded for this variant; it was not imported"), message = "Checksum mismatch", resumable = false) }
                 return
             }
+            if (r.userImport) {
+                if (!GgufHeader.hasMagic(part)) {
+                    part.delete()
+                    update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Invalid("NOT_GGUF", "This is not a GGUF model file (missing GGUF header); it was not imported"), message = "Not a GGUF file", resumable = false) }
+                    return
+                }
+                val dup = files.allInstalled().firstOrNull { it.sha256 == sha }
+                if (dup != null) {
+                    part.delete()
+                    update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Conflict("The same file is already installed (${dup.fileName})"), message = "Already installed", resumable = false) }
+                    return
+                }
+            }
             val final = File(dir, r.fileName)
-            java.nio.file.Files.move(part.toPath(), final.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            Fs.writeJson(files.acquiredRecord(r.variantId), linkedMapOf("schema" to 1, "file" to final.name, "sha256" to sha, "size" to done, "source" to "import",
-                "original_name" to input.name, "at" to clock.nowMs(), "checksum_verified_against_registry" to (r.expectedSha != null)))
-            update(opId) { it.copy(state = OperationState.SUCCEEDED, progress = Progress(done, done, "bytes"), message = "Imported ${input.name}" + if (r.expectedSha == null) " (no registry checksum to verify against; sha256 recorded)" else " and verified", resumable = false, error = null) }
+            moveInto(part, final)
+            writeManifest(r, final, sha, done, if (r.userImport) "user_import" else "import", input.name, r.expectedSha != null)
+            update(opId) { it.copy(state = OperationState.SUCCEEDED, progress = Progress(done, done, "bytes"),
+                message = "Imported ${input.name}" + if (r.userImport) " (unverified provenance: sha256 recorded, no catalog hash to compare)" else if (r.expectedSha == null) " (no registry checksum to verify against; sha256 recorded)" else " and verified", resumable = false, error = null) }
         } catch (e: HttpException) {
             part.delete()
             update(opId) { it.copy(state = OperationState.CANCELLED, resumable = false, message = "Cancelled; partial file removed") }
@@ -319,6 +420,55 @@ class AcquisitionService(
             part.delete()
             update(opId) { it.copy(state = OperationState.FAILED, error = StudioError.Io(e.message ?: "I/O error"), message = e.message ?: "I/O error", resumable = false) }
         } finally { importInputs.remove(opId) }
+    }
+
+    // ---- installed models ---------------------------------------------------------------------------------------------
+
+    /** Free-space accounting: what is free, what the safety reserve keeps, what installed/partial files use, what a new download may use. */
+    data class StorageNumbers(val freeBytes: Long, val reserveBytes: Long, val installedBytes: Long, val partialBytes: Long, val headroomBytes: Long)
+
+    fun storageNumbers(): StorageNumbers {
+        val free = freeBytes()
+        val reserve = reserveBytes()
+        return StorageNumbers(free, reserve, files.installedBytes(), files.partialBytes(), free - reserve)
+    }
+
+    /** Removes an installed model (file + partial + manifest) and returns the bytes freed. Refused while a transfer for it is active. */
+    fun uninstall(variantId: String): StudioResult<Long> {
+        val busy = synchronized(lock) { ops.values.any { it.variantId == variantId && !it.op.isTerminal && !(it.op.state == OperationState.PAUSED) } }
+        if (busy) return StudioResult.Err(StudioError.Conflict("A transfer for this model is in progress; cancel it first"))
+        val had = files.isAcquired(variantId) || files.dirOf(variantId).isDirectory
+        if (!had) return StudioResult.Err(StudioError.NotFound("installed model $variantId"))
+        val freed = files.uninstall(variantId)
+        // A paused download of the same variant has lost its partial file: it can no longer resume.
+        synchronized(lock) { ops.values.filter { it.variantId == variantId && it.op.state == OperationState.PAUSED }.forEach { rr ->
+            update(rr.op.id) { it.copy(state = OperationState.CANCELLED, resumable = false, message = "Cancelled: the model was removed") } } }
+        return StudioResult.Ok(freed)
+    }
+
+    /**
+     * Manual import of a user-supplied GGUF that is not in the catalog. The file is streamed to app storage with its sha256
+     * computed on the way, must carry the GGUF magic, and is recorded with provenance "unverified_provenance" and license
+     * state UNVERIFIED (nothing vouches for where it came from).
+     */
+    fun importUserModel(input: SourceInput): StudioResult<Operation> {
+        if (!input.name.lowercase().endsWith(".gguf")) return StudioResult.Err(StudioError.Invalid("NOT_GGUF", "Only .gguf model files can be imported manually"))
+        if (input.sizeBytes == 0L) return StudioResult.Err(StudioError.Invalid("EMPTY_FILE", "The chosen file is empty"))
+        if (input.sizeBytes > 0 && storage.freeBytes(files.dir) - input.sizeBytes < reserveBytes())
+            return StudioResult.Err(StudioError.Blocked("INSUFFICIENT_STORAGE", "Not enough free storage to import this file and keep the safety reserve",
+                listOf(Blocker("INSUFFICIENT_STORAGE", "File is ${fmtBytes(input.sizeBytes)}; free ${fmtBytes(storage.freeBytes(files.dir))}; reserve ${fmtBytes(reserveBytes())}"))))
+        val fileName = Fs.safeName(input.name)
+        val rec = synchronized(lock) {
+            val id = "op-" + ids.hex(10)
+            val now = clock.nowMs()
+            val vid = "user-import#$id"
+            val op = Operation(id, OperationKind.IMPORT_MODEL, null, vid, OperationState.QUEUED, Progress(0, input.sizeBytes, "bytes"), "Queued", null, false, now, now)
+            Op(op, vid, null, IntendedUse(), null, null, fileName, userImport = true).also { ops[id] = it; persist(it) }
+        }
+        cancelFlags[rec.op.id] = AtomicBoolean(false)
+        importInputs[rec.op.id] = input
+        runner.submit { runImport(rec.op.id) }
+        return StudioResult.Ok(synchronized(lock) { ops.getValue(rec.op.id).op })
     }
 
     // ---- common operations API ----------------------------------------------------------------------------------------------

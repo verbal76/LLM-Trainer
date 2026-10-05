@@ -15,6 +15,8 @@ data class SlotInfo(
     val bootsSinceHealthy: Int = 0,
     val everHealthy: Boolean = false,
     val files: List<FileEntry> = emptyList(),
+    /** Native ABI the bundle was built for. Slots written by v1 hosts predate this field and are ABI 1 by definition. */
+    val nativeAbi: Int = 1,
 )
 
 @Serializable
@@ -97,9 +99,13 @@ class UpdateStore(
      * can never leave an older OTA bundle shadowing the newer built-in one.
      */
     @Synchronized
-    fun reconcileBuiltin(builtinVersion: Int) {
+    fun reconcileBuiltin(builtinVersion: Int, hostNativeAbi: Int? = null) {
         var s = load()
-        val stale = s.slots.values.filter { it.bundleVersion <= builtinVersion }.map { it.id }
+        // Also drop slots built for another native runtime (e.g. an abi-1 slot left by a v1 APK that was upgraded
+        // in place to an abi-2 APK): exact-ABI semantics must hold for what is already on disk, not only downloads.
+        val stale = s.slots.values.filter {
+            it.bundleVersion <= builtinVersion || (hostNativeAbi != null && it.nativeAbi != hostNativeAbi)
+        }.map { it.id }
         if (stale.isEmpty()) return
         for (id in stale) {
             slotDir(id).deleteRecursively()
@@ -115,8 +121,11 @@ class UpdateStore(
 
     /** Install a verified bundle as the pending (trial) slot. Takes effect on next launch. */
     @Synchronized
-    fun stage(v: BundleFormat.Verified, bundleSha256: String, builtinVersion: Int): Result<SlotInfo> {
+    fun stage(v: BundleFormat.Verified, bundleSha256: String, builtinVersion: Int, hostNativeAbi: Int? = null): Result<SlotInfo> {
         val m = v.manifest
+        if (hostNativeAbi != null && m.requires.nativeAbi != hostNativeAbi) {
+            return Result.failure(RejectedException(Reject(RejectCode.NATIVE_ABI_MISMATCH, "bundle ${m.requires.nativeAbi} != host $hostNativeAbi")))
+        }
         val s0 = load()
         val id = "v${m.bundleVersion}-${bundleSha256.take(12)}"
         if (isVersionQuarantined(s0, m.bundleVersion)) return Result.failure(RejectedException(Reject(RejectCode.QUARANTINED, id)))
@@ -140,6 +149,7 @@ class UpdateStore(
         val slot = SlotInfo(
             id = id, bundleVersion = m.bundleVersion, versionName = m.bundleVersionName, sha256 = bundleSha256,
             entryClass = m.entryClass, installedAtMs = clock(), files = m.files,
+            nativeAbi = m.requires.nativeAbi,
         )
         var s = s0
         // Replace any older un-promoted pending slot.

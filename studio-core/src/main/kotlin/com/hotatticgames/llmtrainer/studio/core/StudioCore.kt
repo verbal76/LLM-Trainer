@@ -31,7 +31,15 @@ class StudioCore(
     private val appVersion: String = "0.1.0",
     private val policy: SafetyPolicy = SafetyPolicy(),
     registryFiles: List<Pair<String, String>> = EmbeddedRegistry.files,
+    artifactFiles: List<Pair<String, String>> = EmbeddedArtifacts.files,
+    canonicalLicensesJson: String = EmbeddedArtifacts.canonicalLicenses,
+    /** Phone-first engine seams. Null = that capability is reported unavailable (never faked). */
+    inference: InferenceBackend? = null,
+    trainer: TrainingBackend? = null,
 ) : Studio {
+
+    /** Model manager + device profiler (additive API, see studio-api ModelsApi.kt). */
+    val models: ModelsService
 
     /** Non-fatal problems found while loading state (corrupt files set aside, unreadable projects, invalid registry entries). */
     val startupProblems: List<String> get() = problems.toList()
@@ -64,16 +72,76 @@ class StudioCore(
 
     private class EvalRec(val view: EvaluationView, val jobId: String, val status: String, val reportBytes: ByteArray, val kind: String, val refs: List<String>, val hashes: Map<String, String>, val method: String?)
 
+    private val modelFiles = ModelFiles(File(wsDir, "models"))
+    private val assembled = java.util.concurrent.ConcurrentHashMap<String, Pair<String, DatasetEngine.Assembled>>()
+    private val local: LocalStudio
+
+    /** What the phone-first services need from this class (read-only views taken without blocking the UI). */
+    private val localHost: LocalHost = object : LocalHost {
+        private fun proj(id: ProjectId) = synchronized(lock) { projects[id.value] }
+        private fun acquiredFile(variantId: String): Pair<File, String?>? {
+            val o = Fs.readJson(modelFiles.acquiredRecord(variantId)) ?: return null
+            val f = File(modelFiles.dirOf(variantId), o.str("file") ?: return null)
+            return if (f.isFile) f to o.str("sha256")?.let(Hashing::bare) else null
+        }
+        override fun projectDir(id: ProjectId): File? = proj(id)?.dir
+        override fun projectIds(): List<ProjectId> = synchronized(lock) { projects.keys.map { ProjectId(it) } }
+        override fun projectName(id: ProjectId): String? = proj(id)?.name
+        override fun baseRef(id: ProjectId): BaseRef? {
+            val p = proj(id) ?: return null
+            val e = entryOf(p.baseModelId) ?: return null
+            val variants = catalogSvc.variantsOf(e)
+            val chosen = (p.variantId?.let { vid -> variants.firstOrNull { it.id == vid } }?.let { listOf(it) } ?: variants).firstNotNullOfOrNull { v -> acquiredFile(v.id)?.let { v to it } }
+            val gate = licenses.gate(e, IntendedUse(true, true, p.commercial, p.redistribute))
+            val name = catalogSvc.modelView(e).name
+            return BaseRef(e.entryId, chosen?.first?.id ?: p.variantId, name, chosen?.second?.first, gate, chosen?.second?.second)
+        }
+        override fun dataView(id: ProjectId): DataView? {
+            val p = proj(id) ?: return null
+            val ds = p.dataset ?: return null
+            val inc = ds.chunks.filter { ds.isIncluded(it) }.map { it.ref }.toSet()
+            val sha = DatasetEngine.datasetSha(ds)
+            return DataView(sha, ds.meta.status, ds.meta.splitsAvailable, ds.chunks, inc, p.domain) {
+                // assembling (similarity/leakage passes) is not cheap: cache per dataset hash (the hash covers every input)
+                assembled.compute(p.id) { _, cur -> if (cur != null && cur.first == sha) cur else sha to DatasetEngine.assemble(ds) }!!.second
+            }
+        }
+        override fun sourceFacts(id: ProjectId): Map<String, SourceFact> =
+            proj(id)?.sources?.all()?.associate { it.sourceId to SourceFact(it.sha256, it.trainable, it.name) } ?: emptyMap()
+        override fun installed(): List<InstalledModelSummary> {
+            val users = synchronized(lock) { projects.values.toList() }
+            val out = ArrayList<InstalledModelSummary>()
+            for (e in registry) {
+                val m = catalogSvc.modelView(e)
+                for (v in catalogSvc.variantsOf(e)) {
+                    val f = acquiredFile(v.id)?.first ?: continue
+                    val mv = m.variants.firstOrNull { it.id == v.id }
+                    out.add(InstalledModelSummary(e.entryId, v.id, m.name, v.quantization ?: mv?.quant ?: "", f.length(), m.license.state,
+                        users.filter { it.baseModelId == e.entryId && (it.variantId == null || it.variantId == v.id) }.map { ProjectId(it.id) }))
+                }
+            }
+            return out
+        }
+        override fun snapshotJson(): String = deviceSnapshotJson()
+    }
+
     init {
         rootDir.mkdirs()
         wsDir.mkdirs(); projectsDir.mkdirs()
         registry = Registry.parseAll(registryFiles) { problems.add(it) }
-        licenses = LicenseService(wsDir, { registry.associateBy { it.entryId } }, http, clock).also { problems.addAll(it.problems) }
-        val files = ModelFiles(File(wsDir, "models"))
-        catalogSvc = CatalogService(registry, licenses, files, File(wsDir, "catalog_overrides.json"), deviceSnapshotJson, policy, clock) { problems.add(it) }
+        val canonical = try { ArtifactRegistry.parseCanonical(canonicalLicensesJson) } catch (e: Exception) { problems.add("canonical license index is invalid: ${e.message}"); emptyMap() }
+        val artifactCatalog = ArtifactCatalog(ArtifactRegistry.parseAll(artifactFiles) { problems.add(it) }, canonical)
+        licenses = LicenseService(wsDir, { registry.associateBy { it.entryId } }, http, clock) { e -> artifactCatalog.licenseEvidence(e) }.also { problems.addAll(it.problems) }
+        val files = modelFiles
+        catalogSvc = CatalogService(registry, licenses, files, File(wsDir, "catalog_overrides.json"), deviceSnapshotJson, policy, clock, artifactCatalog) { problems.add(it) }
         acquisition = AcquisitionService(wsDir, catalogSvc, licenses, files, http, clock, storage, runner, ids, policy, deviceSnapshotJson).also { problems.addAll(it.problems) }
+        models = ModelsService(wsDir, catalogSvc, licenses, files, acquisition, deviceSnapshotJson, policy) { problems.add(it) }
         loadProjects()
+        local = LocalStudio(localHost, inference, trainer, File(wsDir, "local").also { it.mkdirs() }, clock, ids, runner, policy, problems)
     }
+
+    /** Closes any resident model (call when the app goes to the background to give the RAM back). */
+    fun releaseModels() = local.releaseModels()
 
     // ================================================================================================================
     // Persistence
@@ -232,6 +300,12 @@ class StudioCore(
             else -> null
         }
         val rt = catalogSvc.deviceProfile().nativeRuntimeId
+        val tst = local.engine.trainingStatus()
+        val onDeviceWhy = when {
+            !tst.available -> if (tst.reason != null && local.engine.trainer != null) tst.reason!! else "This app version has no training runtime (nativeRuntimeId $rt); on-device training needs a future app update."
+            tuneWhy != null -> tuneWhy
+            else -> null
+        }
         return listOf(
             MethodOption(MethodIds.REFERENCE_PACKAGE, "Reference package (retrieval)", false, RunLocation.DEVICE, true, null,
                 "Exact-reference lookup over your source chunks. This is NOT training; the model is unchanged."),
@@ -239,9 +313,12 @@ class StudioCore(
                 "Instructions only. This is NOT training and does not add knowledge."),
             MethodOption(MethodIds.ADAPTER_DESKTOP, "Adapter training (LoRA/QLoRA) on desktop", true, RunLocation.DESKTOP, tuneWhy == null, tuneWhy,
                 "This phone only prepares the training job package. Training happens on a desktop/GPU via 'llmtrainer import-job'; nothing is trained on this device."),
-            MethodOption(MethodIds.ADAPTER_ON_DEVICE, "Adapter training on this device", true, RunLocation.DEVICE, false,
-                "This app version has no training runtime (nativeRuntimeId $rt); on-device training needs a future app update.",
-                "Not available. Nothing is claimed to train on the phone."))
+            MethodOption(MethodIds.ADAPTER_ON_DEVICE, "Fine-tune all layers on this device", true, RunLocation.DEVICE, onDeviceWhy == null, onDeviceWhy,
+                if (onDeviceWhy == null) "Changes model parameters on this phone and writes a patch (base model untouched). Whether it fits the safe memory envelope is checked, with numbers, in the training plan; it is refused rather than run if it would degrade the phone."
+                else "Not available. Nothing is claimed to train on the phone."),
+            MethodOption(MethodIds.PARTIAL_ON_DEVICE, "Fine-tune the last layers on this device", true, RunLocation.DEVICE, onDeviceWhy == null, onDeviceWhy,
+                if (onDeviceWhy == null) "Changes model parameters on this phone (last N transformer blocks only) and writes a patch; base model untouched. Partial fine-tune, not full."
+                else "Not available. Nothing is claimed to train on the phone."))
     }
 
     private fun selectedMethod(p: PState): MethodOption? = methodOptionsFor(p).firstOrNull { it.id == p.methodId && it.available }
@@ -306,6 +383,7 @@ class StudioCore(
 
     override fun deleteProject(id: ProjectId): StudioResult<Unit> {
         val p = synchronized(lock) { projects.remove(id.value) } ?: return err(StudioError.NotFound("project ${id.value}"))
+        local.projectDeleted(ProjectId(id.value)); assembled.remove(id.value)
         synchronized(p.monitor) { p.dir.deleteRecursively() }
         return ok(Unit)
     }
@@ -382,12 +460,14 @@ class StudioCore(
         p.report = p.report?.let { r -> r.copy(items = r.items.map { i -> if (i.sourceId == sourceId) i.copy(issues = i.issues.filter { it.code != IssueCode.RIGHTS_UNSET } + (if (rights == RightsStatus.UNSET) listOf(IngestIssue(IssueCode.RIGHTS_UNSET, "Set usage rights before building a dataset")) else emptyList()),
             provenance = i.provenance?.copy(rights = rights)) else i }) }
         p.report?.let { saveReport(p, it) }
+        if (!DatasetEngine.isTrainableRights(rights)) local.sourceChanged(projectId, sourceId)
         markStale(p); resetExports(p, false); saveProject(p)
         ok(Unit)
     }
 
     override fun removeSource(projectId: ProjectId, sourceId: String) = withP(projectId) { p ->
         if (p.sources.get(sourceId) == null) return@withP err(StudioError.NotFound("source $sourceId"))
+        local.sourceChanged(projectId, sourceId)
         p.sources.remove(sourceId)
         p.report = p.report?.let { r -> r.copy(items = r.items.filter { it.sourceId != sourceId && it.duplicateOfSourceId != sourceId }) }
         p.report?.let { saveReport(p, it) }
@@ -633,6 +713,40 @@ class StudioCore(
             catch (e: IOException) { return err(StudioError.Io(e.message ?: "read failed")) }
         return try { ok(Packages.parseSpecialist(files)) } catch (e: PackageException) { err(StudioError.Invalid(e.code, e.message ?: e.code)) }
     }
+
+    // ================================================================================================================
+    // v2 (phone-first): delegated to LocalStudio (see docs/studio/V2_API.md)
+    // ================================================================================================================
+
+    override fun engineStatus() = local.engineStatus()
+    override fun installedModels() = local.installedModels()
+    override fun projectModelState(projectId: ProjectId) = local.projectModelState(projectId)
+    override fun createChat(projectId: ProjectId, target: ChatTarget, specialistId: String?, options: ChatOptions) = local.createChat(projectId, target, specialistId, options)
+    override fun listChats(projectId: ProjectId) = local.listChats(projectId)
+    override fun chatHistory(chatId: String) = local.chatHistory(chatId)
+    override fun deleteChat(chatId: String) = local.deleteChat(chatId)
+    override fun sendMessage(chatId: String, text: String, cancel: CancelToken, onToken: (String) -> Unit) = local.sendMessage(chatId, text, cancel, onToken)
+    override fun localTrainingPlan(projectId: ProjectId) = local.localTrainingPlan(projectId)
+    override fun startLocalTraining(projectId: ProjectId, settings: TrainingSettings, confirmed: Boolean) = local.startLocalTraining(projectId, settings, confirmed)
+    override fun trainingRuns(projectId: ProjectId) = local.trainingRuns(projectId)
+    override fun trainingRun(runId: String) = local.trainingRun(runId)
+    override fun pauseTraining(runId: String) = local.pauseTraining(runId)
+    override fun cancelTraining(runId: String) = local.cancelTraining(runId)
+    override fun resumeTraining(runId: String) = local.resumeTraining(runId)
+    override fun specialists(projectId: ProjectId) = local.specialists(projectId)
+    override fun verifySpecialist(specialistId: String) = local.verifySpecialist(specialistId)
+    override fun selectSpecialist(projectId: ProjectId, specialistId: String?) = local.selectSpecialist(projectId, specialistId)
+    override fun deleteSpecialist(specialistId: String) = local.deleteSpecialist(specialistId)
+    override fun exportSpecialistPatch(specialistId: String, out: OutputStream) = local.exportSpecialistPatch(specialistId, out)
+    override fun startLocalEvaluation(projectId: ProjectId, specialistId: String, options: LocalEvalOptions) = local.startLocalEvaluation(projectId, specialistId, options)
+    override fun localEvaluations(projectId: ProjectId) = local.localEvaluations(projectId)
+    override fun localEvaluation(evalId: String) = local.localEvaluation(evalId)
+    override fun cancelLocalEvaluation(evalId: String) = local.cancelLocalEvaluation(evalId)
+    override fun compareAB(projectId: ProjectId, specialistId: String, prompt: String, options: ABOptions, cancel: CancelToken, onToken: (ChatTarget, String) -> Unit) =
+        local.compareAB(projectId, specialistId, prompt, options, cancel, onToken)
+    override fun abComparisons(projectId: ProjectId) = local.abComparisons(projectId)
+    override fun saveABNote(projectId: ProjectId, comparisonId: String, note: String) = local.saveABNote(projectId, comparisonId, note)
+    override fun deleteAB(projectId: ProjectId, comparisonId: String) = local.deleteAB(projectId, comparisonId)
 
     // ================================================================================================================
     // Host

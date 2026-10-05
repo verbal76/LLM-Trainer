@@ -7,9 +7,10 @@ plugins {
 
 fun prop(name: String, default: String) = (findProperty(name) as String?) ?: default
 
-val hostVersionCode = prop("hostVersionCode", "1").toInt()
-val hostVersionName = prop("hostVersionName", "1")
-val builtinBundleVersion = prop("bundleVersion", "1").toInt()
+val hostVersionCode = prop("hostVersionCode", "2").toInt()
+val hostVersionName = prop("hostVersionName", "2")
+val builtinBundleVersion = prop("bundleVersion", "3").toInt()
+val gitSha = prop("gitSha", "dev") // CI passes -PgitSha=$(git rev-parse --short=7 HEAD); "dev" locally
 val otaKeyId = prop("otaKeyId", File(rootDir, "ota/keys/prod.keyid").readText().trim())
 val otaPublicKey = File(prop("otaPublicKeyFile", File(rootDir, "ota/keys/prod.pub").path)).readText().trim()
 
@@ -27,8 +28,9 @@ android {
 
         // Native runtime identity. Bump NATIVE_ABI whenever JNI surface or shipped .so files change
         // incompatibly: OTA bundles pin it exactly, so they can never reach an incompatible runtime.
-        buildConfigField("int", "NATIVE_ABI", "1")
-        buildConfigField("String", "NATIVE_RUNTIME_ID", "\"none-v1\"")
+        buildConfigField("int", "NATIVE_ABI", "2")
+        buildConfigField("String", "NATIVE_RUNTIME_ID", "\"${prop("nativeRuntimeId", "none-v2")}\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         buildConfigField("int", "BUILTIN_BUNDLE_VERSION", "$builtinBundleVersion")
         buildConfigField("String", "OTA_KEY_ID", "\"$otaKeyId\"")
         buildConfigField("String", "OTA_PUBLIC_KEY", "\"$otaPublicKey\"")
@@ -50,8 +52,14 @@ android {
             }
         }
     }
+    packaging {
+        // Native libs stay uncompressed + page-aligned inside the APK (mandatory for 16 KB page-size devices).
+        jniLibs { useLegacyPackaging = false }
+    }
     buildTypes {
         release {
+            // Phones only: the x86_64 engine build exists for emulator qualification (debug/test APK) and never ships.
+            ndk { abiFilters += "arm64-v8a" }
             isMinifyEnabled = false // bundles resolve kotlin-stdlib + host API from the host: never strip them
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
@@ -68,6 +76,7 @@ android {
 dependencies {
     implementation(project(":ota-core"))
     api(project(":host-api"))
+    implementation(project(":runtime"))
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")

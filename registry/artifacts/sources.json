@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "description": "Curated input of scripts/catalog/refresh_catalog.py. Repo ids, file-name GLOBS (case-insensitive, must match exactly one published file) and license-text URLs. NOTHING here is a size, hash or revision: those are read from the Hugging Face API by the catalog-refresh CI job. File names are deliberately not guessed: a glob that matches zero or several files is reported as an error (optional entries: 'not_published').",
+  "hf_api_base": "https://huggingface.co",
+  "license_canon": "registry/licenses/canonical.json",
+  "runtime_support": {
+    "note": "Architecture support of the inference runtimes, by GGUF general.architecture. llama.cpp facts are from the upstream Qwen3 README / llama.cpp model list as recorded in registry/base-models; hag-engine support is UNVERIFIED until the engine branch publishes its arch table.",
+    "llama.cpp": {
+      "llama": {
+        "supported": "yes",
+        "min_build": null
+      },
+      "qwen3": {
+        "supported": "yes",
+        "min_build": "b5401"
+      },
+      "qwen2": {
+        "supported": "yes",
+        "min_build": null
+      }
+    },
+    "hag-engine": {}
+  },
+  "repos": [
+    {
+      "repo": "HuggingFaceTB/SmolLM2-135M-Instruct-GGUF",
+      "base_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+      "family": "SmolLM2",
+      "params_b_nominal": 0.135,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "smollm2-135m-instruct-f16",
+          "glob": "*f16.gguf",
+          "quantization": "F16",
+          "precision": "f16",
+          "optional": true,
+          "exclude": [
+            "*bf16.gguf"
+          ]
+        },
+        {
+          "id": "smollm2-135m-instruct-f32",
+          "glob": "*f32.gguf",
+          "quantization": "F32",
+          "precision": "f32",
+          "optional": true
+        },
+        {
+          "id": "smollm2-135m-instruct-q8_0",
+          "glob": "*q8_0.gguf",
+          "quantization": "Q8_0",
+          "precision": "quantized"
+        },
+        {
+          "id": "smollm2-135m-instruct-q4_k_m",
+          "glob": "*q4_k_m.gguf",
+          "quantization": "Q4_K_M",
+          "precision": "quantized",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "repo": "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
+      "base_repo": "HuggingFaceTB/SmolLM2-360M-Instruct",
+      "family": "SmolLM2",
+      "params_b_nominal": 0.36,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "smollm2-360m-instruct-f16",
+          "glob": "*f16.gguf",
+          "quantization": "F16",
+          "precision": "f16",
+          "optional": true,
+          "exclude": [
+            "*bf16.gguf"
+          ]
+        },
+        {
+          "id": "smollm2-360m-instruct-f32",
+          "glob": "*f32.gguf",
+          "quantization": "F32",
+          "precision": "f32",
+          "optional": true
+        },
+        {
+          "id": "smollm2-360m-instruct-q8_0",
+          "glob": "*q8_0.gguf",
+          "quantization": "Q8_0",
+          "precision": "quantized"
+        },
+        {
+          "id": "smollm2-360m-instruct-q4_k_m",
+          "glob": "*q4_k_m.gguf",
+          "quantization": "Q4_K_M",
+          "precision": "quantized",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-0.6B-GGUF",
+      "base_repo": "Qwen/Qwen3-0.6B",
+      "family": "Qwen3",
+      "params_b_nominal": 0.6,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "qwen3-0.6b-q8_0",
+          "glob": "*q8_0.gguf",
+          "quantization": "Q8_0",
+          "precision": "quantized"
+        },
+        {
+          "id": "qwen3-0.6b-f16",
+          "glob": "*f16.gguf",
+          "quantization": "F16",
+          "precision": "f16",
+          "optional": true,
+          "exclude": [
+            "*bf16.gguf"
+          ]
+        },
+        {
+          "id": "qwen3-0.6b-bf16",
+          "glob": "*bf16.gguf",
+          "quantization": "BF16",
+          "precision": "bf16",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-1.7B-GGUF",
+      "base_repo": "Qwen/Qwen3-1.7B",
+      "family": "Qwen3",
+      "params_b_nominal": 1.7,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "qwen3-1.7b-q8_0",
+          "glob": "*q8_0.gguf",
+          "quantization": "Q8_0",
+          "precision": "quantized"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-4B-GGUF",
+      "base_repo": "Qwen/Qwen3-4B",
+      "family": "Qwen3",
+      "params_b_nominal": 4.0,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/Qwen/Qwen3-4B/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "qwen3-4b-q4_k_m",
+          "glob": "*q4_k_m.gguf",
+          "quantization": "Q4_K_M",
+          "precision": "quantized"
+        },
+        {
+          "id": "qwen3-4b-q8_0",
+          "glob": "*q8_0.gguf",
+          "quantization": "Q8_0",
+          "precision": "quantized"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-8B-GGUF",
+      "base_repo": "Qwen/Qwen3-8B",
+      "family": "Qwen3",
+      "params_b_nominal": 8.0,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/Qwen/Qwen3-8B/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "qwen3-8b-q4_k_m",
+          "glob": "*q4_k_m.gguf",
+          "quantization": "Q4_K_M",
+          "precision": "quantized"
+        },
+        {
+          "id": "qwen3-8b-q8_0",
+          "glob": "*q8_0.gguf",
+          "quantization": "Q8_0",
+          "precision": "quantized"
+        }
+      ]
+    }
+  ]
+}

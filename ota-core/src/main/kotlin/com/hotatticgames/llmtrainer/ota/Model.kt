@@ -66,6 +66,8 @@ data class HostInfo(
     val channel: String,
     /** Bundle shipped inside the APK; also the floor for "never run older than the APK". */
     val builtinBundleVersion: Int,
+    /** Git short SHA the APK was built from ("dev" for local builds). Identity only; never a compatibility input. */
+    val sourceSha: String = "dev",
 )
 
 @Serializable
@@ -98,6 +100,8 @@ enum class RejectCode {
     HASH_MISMATCH, UNLISTED_FILE, MISSING_FILE, FORBIDDEN_FILE, UNSAFE_PATH, TOO_LARGE, NO_DEX,
     HOST_API_TOO_OLD, HOST_API_TOO_NEW, NATIVE_ABI_MISMATCH, MISSING_CAPABILITY, SDK_TOO_LOW,
     NOT_NEWER, QUARANTINED, DOWNLOAD_FAILED, INDEX_INVALID, TAMPERED_ON_DISK,
+    /** Appended (never reorder): channel fetch semantics. Offline/DNS/timeout vs HTTP 5xx vs other HTTP errors. */
+    NETWORK_UNAVAILABLE, SERVER_ERROR, CHANNEL_HTTP_ERROR,
 }
 
 @Serializable

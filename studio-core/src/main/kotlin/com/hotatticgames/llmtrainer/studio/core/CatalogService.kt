@@ -31,22 +31,18 @@ import java.io.File
 data class VariantRec(
     val id: String, val modelId: String, val variantId: String, val format: String, val quantization: String?,
     val sourceUrl: String?, val sizeBytes: Long?, val sha256: String?, val sizeEvidence: String?,
+    /** Set for variants that come from the CI-refreshed artifact registry (exact file, revision, hash). */
+    val artifact: ArtifactRec? = null,
 ) {
+    /** Why a registry artifact variant cannot be downloaded (null for non-artifact variants and downloadable artifacts). */
+    val artifactBlock: String? get() = artifact?.notDownloadableReason
     /** Only a direct file URL can be downloaded; a repository page cannot. */
     val directUrl: String? get() = sourceUrl?.takeIf { u -> u.startsWith("https://") && DIRECT_EXT.any { u.substringBefore('?').lowercase().endsWith(it) } }
     companion object { val DIRECT_EXT = listOf(".gguf", ".safetensors", ".bin", ".pte", ".zip", ".onnx", ".task", ".tflite", ".litertlm") }
 }
 
-/** Where a downloaded/imported model file lives (workspace/models/<safe variant id>/). */
-class ModelFiles(val dir: File) {
-    fun dirOf(variantId: String) = File(dir, Fs.safeName(variantId.replace('#', '_').replace('@', '_'), 100) + "-" + Hashing.short(Hashing.sha256(variantId), 8))
-    fun acquiredRecord(variantId: String): File = File(dirOf(variantId), "acquired.json")
-    fun isAcquired(variantId: String): Boolean {
-        val o = Fs.readJson(acquiredRecord(variantId)) ?: return false
-        val f = o.str("file") ?: return false
-        return File(dirOf(variantId), f).isFile
-    }
-}
+/** Per-artifact feasibility (inference and training are separate answers); installed by [ModelsService]. */
+interface ArtifactAssessor { fun assess(e: RegEntry, a: ArtifactRec): Pair<Feasibility, TrainingFeasibility> }
 
 class CatalogService(
     private val registry: List<RegEntry>,
@@ -56,16 +52,28 @@ class CatalogService(
     private val snapshot: () -> String,
     private val policy: SafetyPolicy,
     private val clock: Clock,
+    val artifacts: ArtifactCatalog = ArtifactCatalog(emptyList(), emptyMap()),
     private val onProblem: (String) -> Unit = {},
 ) {
     private val byId = registry.associateBy { it.entryId }
     val entries: Map<String, RegEntry> get() = byId
+
+    /** Optional per-artifact assessor (installed by [ModelsService]) that replaces the generic per-model feasibility on artifact variants. */
+    var artifactAssessor: ArtifactAssessor? = null
 
     // ---- variants ------------------------------------------------------------------------------------------------
 
     fun variantsOf(e: RegEntry): List<VariantRec> {
         val base = LinkedHashMap<String, VariantRec>()
         for (v in e.variants) base[v.variantId] = VariantRec("${e.entryId}#${v.variantId}", e.entryId, v.variantId, v.format, v.quantization, v.sourceUrl, v.sizeBytes, v.sha256, v.sizeEvidence)
+        for (a in artifacts.forRepo(e.hfRepo)) {
+            if (a.published == false) continue                       // optional file that the repo does not publish
+            val ok = a.downloadable
+            val ev = if (ok) "CI-refreshed from huggingface.co: revision ${a.revision?.take(12)}, refreshed ${a.refreshedAt ?: "?"}"
+                     else "UNREFRESHED placeholder (${a.notDownloadableReason}): no size, hash or revision is known yet, so this file cannot be downloaded"
+            base[a.id] = VariantRec("${e.entryId}#${a.id}", e.entryId, a.id, "GGUF", a.quantization, if (ok) a.downloadUrl else null,
+                if (ok) a.sizeBytes else null, if (ok) a.bareSha256 else null, ev, a)
+        }
         val o = Fs.readJson(overridesFile) { onProblem(it) }
         o?.obj("variants")?.arr(e.entryId)?.objs()?.forEach { v ->
             val vid = v.str("variant_id") ?: return@forEach
@@ -188,20 +196,26 @@ class CatalogService(
 
     // ---- catalog views -----------------------------------------------------------------------------------------------
 
-    fun variantView(e: RegEntry, v: VariantRec, android: Feasibility = androidFeasibility(e), training: TrainingFeasibility = trainingFeasibility(e)): ModelVariant {
+    fun variantView(e: RegEntry, v: VariantRec, android0: Feasibility = androidFeasibility(e), training0: TrainingFeasibility = trainingFeasibility(e)): ModelVariant {
         val p = Registry.paramsB(e)
         val known = v.sizeBytes != null
         val size = v.sizeBytes ?: estimatedSizeBytes(e, v)
+        val art = v.artifact
+        val assessed = if (art != null) artifactAssessor?.assess(e, art) else null
+        val android = assessed?.first ?: android0
+        val training = assessed?.second ?: training0
         val note = buildString {
+            if (art != null && art.notDownloadableReason != null) append("This file's catalog data (revision, size, checksum) has not been refreshed from the model hub yet (${art.notDownloadableReason}); it cannot be downloaded until the catalog refresh has run. ")
             if (!known) append("Download size is not recorded; the figure shown is an ESTIMATE from the parameter count" + (if (p == null) " (unknown, so assumed multi-GB)" else "") + ". ")
-            if (v.directUrl == null) append("No direct file URL is recorded (the source is a repository page); import the file or add a workspace override with a file URL. ")
+            if (v.directUrl == null && art == null) append("No direct file URL is recorded (the source is a repository page); import the file or add a workspace override with a file URL. ")
             if (v.sha256 == null) append("No checksum recorded.")
         }.trim().ifEmpty { null }
         return ModelVariant(
             id = v.id, modelId = e.entryId, format = v.format, quant = v.quantization ?: "unspecified", sizeBytes = size,
-            paramsBillions = p ?: 0.0, architecture = e.archNotes?.takeIf { it.isNotBlank() }?.take(80) ?: "decoder-only transformer (details not recorded)",
-            contextTokensMax = e.contextLength ?: 0, android = android, training = training,
-            provenance = Provenance(v.sourceUrl ?: "", e.verification.verifiedOn, if (known) "registry" else "estimate", note ?: v.sizeEvidence),
+            paramsBillions = art?.nominalParamsB?.takeIf { it > 0 } ?: p ?: 0.0,
+            architecture = art?.archName?.let { "$it, ${art.layers ?: "?"} layers" } ?: e.archNotes?.takeIf { it.isNotBlank() }?.take(80) ?: "decoder-only transformer (details not recorded)",
+            contextTokensMax = art?.ctxTrain ?: e.contextLength ?: 0, android = android, training = training,
+            provenance = Provenance(v.sourceUrl ?: "", art?.refreshedAt?.take(10) ?: e.verification.verifiedOn, if (known) "registry" else "estimate", note ?: v.sizeEvidence),
             downloadUrl = v.directUrl, sha256 = v.sha256, acquired = files.isAcquired(v.id),
         )
     }

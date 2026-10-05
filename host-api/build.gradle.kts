@@ -9,4 +9,8 @@ java {
 dependencies {
     // The platform API only; the real android.jar is on the device at runtime.
     compileOnly(files(rootProject.extra["androidJar"] as String))
+    testImplementation(kotlin("test"))
+    testImplementation(files(rootProject.extra["androidJar"] as String)) // HostApi.kt references Context/View types
 }
+
+tasks.test { useJUnit() }
