@@ -74,6 +74,17 @@ jobs:
           echo "--- bundle outputs"; find bundle/build/ota -maxdepth 1 -type f -exec ls -l {} + || true
           echo "--- debug apk assets"; unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/" || true
 
+      - name: Release-path rehearsal (throwaway keystore, ephemeral OTA key)
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/rehearsal.jks" -storepass rehearsal -keypass rehearsal \
+            -alias rehearsal -keyalg RSA -keysize 2048 -validity 2 -dname "CN=CI Rehearsal"
+          ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/rehearsal.jks" ANDROID_KEYSTORE_PASSWORD=rehearsal \
+          ANDROID_KEY_ALIAS=rehearsal ANDROID_KEY_PASSWORD=rehearsal \
+          ./gradlew --no-daemon :app:assembleRelease -PhostVersionCode=1 -PhostVersionName=0-rehearsal \
+            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
+          cp app/build/outputs/apk/release/app-release.apk LLM-Trainer-rehearsal.apk
+          tools/ci/verify-apk.sh LLM-Trainer-rehearsal.apk "$RUNNER_TEMP/ci-ota.pub" ci 0-rehearsal
+
       - name: Logo inside APK is byte-identical
         run: |
           H=e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e
