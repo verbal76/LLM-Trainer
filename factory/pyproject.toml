@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llmtrainer-factory"
+version = "0.1.0"
+description = "LLM Trainer factory core: manifests, provenance, license gates, datasets, device qualification, export packages."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.6,<3"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+llmtrainer = "llmtrainer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["llmtrainer*"]
+
+[tool.setuptools.package-data]
+llmtrainer = ["data/**/*.json", "fixtures/**/*.txt", "fixtures/**/*.md", "configs/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

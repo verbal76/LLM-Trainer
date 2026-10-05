@@ -1,0 +1,53 @@
+{
+  "schema": "llm-trainer/base-model-entry",
+  "schema_version": 1,
+  "model_family": "Llama 3.2",
+  "exact_version": "Llama-3.2-3B (base) / -Instruct",
+  "hf_repo_or_source": "meta-llama/Llama-3.2-3B",
+  "parameter_count": "3B (nominal)",
+  "license_id": "LLAMA-3.2-COMMUNITY (custom; not an OSI license)",
+  "license_url": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_2/LICENSE",
+  "commercial_use": "conditional",
+  "fine_tuning_permitted": "conditional",
+  "derivative_adapter_permitted": "conditional",
+  "redistribution_permitted": "conditional",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Llama 3.2 Community License: redistribution requires including the agreement, displaying 'Built with Llama', and retaining the copyright notice.",
+    "Any distributed AI model created/trained/fine-tuned/improved using Llama Materials must include 'Llama' at the beginning of its name (per fetched license text).",
+    "Licensees with >700M monthly active users on the release date must request a separate license from Meta.",
+    "Use must comply with Meta's Acceptable Use Policy (https://www.llama.com/llama3_2/use-policy).",
+    "Per fetched summary of the Llama 3.2 AUP, rights under Section 1(a) are not granted to EU-domiciled individuals/companies for multimodal Llama 3.2 models; the exact scope was read via a summarizer and must be re-read from the primary text before relying on it.",
+    "Governing-law/entity terms differ by licensee location (see license text); not legal advice."
+  ],
+  "supported_formats": [
+    "safetensors (HF; gated repo requires accepting license)",
+    "GGUF (llama.cpp)",
+    "ExecuTorch .pte (documented, incl. Qualcomm QNN & Vulkan tutorials)",
+    "MLC LLM (prebuilt Android configs listed in third-party source)"
+  ],
+  "context_length": 131072,
+  "architecture": {
+    "layers": 28,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "hidden_size": 3072,
+    "notes": "24 attention heads, intermediate 8192 per search excerpt of a mirror config; rope scaling factor 32."
+  },
+  "verification": {
+    "source_urls": [
+      "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_2/LICENSE",
+      "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_2/USE_POLICY.md",
+      "https://github.com/meta-llama/llama-models",
+      "https://docs.pytorch.org/executorch/stable/llm/build-run-llama3-qualcomm-ai-engine-direct-backend.html"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "License/AUP read through a summarizer, not verbatim; legal review of the exact text is required before shipping a derivative.",
+      "Context length 131072 and architecture from third-party mirrors' config excerpts; official meta-llama repo is gated and was not fetched.",
+      "Whether LoRA adapters alone (without base weights) count as 'AI model' requiring the 'Llama' name prefix is not settled by the text we read - owner/legal decision.",
+      "Llama 3.2 is not Meta's newest release (Llama 4 exists); chosen because it is the small-size Llama line."
+    ],
+    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+  }
+}

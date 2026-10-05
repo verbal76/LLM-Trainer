@@ -1,0 +1,49 @@
+{
+  "schema": "llm-trainer/base-model-entry",
+  "schema_version": 1,
+  "model_family": "Olmo 3",
+  "exact_version": "Olmo-3-1025-7B (base)",
+  "hf_repo_or_source": "allenai/Olmo-3-1025-7B",
+  "parameter_count": "7B (nominal)",
+  "license_id": "Apache-2.0",
+  "license_url": "https://www.apache.org/licenses/LICENSE-2.0.txt ; model card statement via search excerpt",
+  "commercial_use": "yes",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Apache-2.0 s.4: redistributors must include a copy of the License, retain copyright/attribution notices, and mark modified files with prominent change notices (verified against apache.org text).",
+    "Apache-2.0 s.6: no trademark license; do not imply endorsement by the model publisher.",
+    "Apache-2.0 s.3: patent licenses terminate if the licensee sues alleging the Work infringes a patent.",
+    "Training-data provenance of the base model is NOT covered by this registry entry; the license of the weights does not by itself settle rights in the pretraining data (not assessed).",
+    "Ai2 also released the training data (Dolma 3) and code; the data's own licenses/terms are separate and were not assessed."
+  ],
+  "supported_formats": [
+    "safetensors (HF transformers)",
+    "OLMo-core native, vLLM (per olmo-core README)",
+    "GGUF only via third-party conversions seen in search results (unverified for official support)"
+  ],
+  "context_length": 65536,
+  "architecture": {
+    "layers": 32,
+    "kv_heads": 32,
+    "head_dim": 128,
+    "hidden_size": 4096,
+    "notes": "kv_heads 32 = full multi-head attention (no GQA reduction): KV cache per token is ~4x that of an 8-KV-head 8B model; head_dim derived 4096/32."
+  },
+  "verification": {
+    "source_urls": [
+      "https://github.com/allenai/OLMo-core",
+      "https://huggingface.co/allenai/Olmo-3-1025-7B (search excerpt: 'code and model are released under Apache 2.0')",
+      "https://www.hpcwire.com/aiwire/2025/11/20/ai2-announces-olmo-3-family-of-open-frontier-language-models/",
+      "https://simonwillison.net/2025/Nov/22/olmo-3/"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Model-card text seen via search excerpt, not fetched directly.",
+      "llama.cpp architecture support for Olmo 3 not verified in this round."
+    ],
+    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+  }
+}

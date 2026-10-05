@@ -1,0 +1,21 @@
+{
+  "model_family": "pipeline-validation-stub",
+  "exact_version": "1",
+  "license_id": "LLM-Trainer-internal-test-fixture",
+  "license_url": "local://llmtrainer/fixtures",
+  "commercial_use": "no",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "no",
+  "restrictions": [
+    "Not a real language model: a toy unigram table used only to validate pipeline plumbing.",
+    "Must not be presented as a deployable or improved specialist."
+  ],
+  "supported_formats": ["stub-json"],
+  "verification": {
+    "source_urls": ["local://llmtrainer/fixtures"],
+    "verified_on": "2026-10-05",
+    "uncertainties": ["This entry describes an in-repo fixture, not a third-party model."]
+  }
+}

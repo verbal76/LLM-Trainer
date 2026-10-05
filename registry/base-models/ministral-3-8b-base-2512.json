@@ -1,0 +1,45 @@
+{
+  "schema": "llm-trainer/base-model-entry",
+  "schema_version": 1,
+  "model_family": "Ministral 3",
+  "exact_version": "Ministral-3-8B-Base-2512",
+  "hf_repo_or_source": "mistralai/Ministral-3-8B-Base-2512",
+  "parameter_count": "8.4B LM + 0.4B vision encoder",
+  "license_id": "Apache-2.0 (reported; unverified)",
+  "license_url": "unverified",
+  "commercial_use": "unverified",
+  "fine_tuning_permitted": "unverified",
+  "derivative_adapter_permitted": "unverified",
+  "redistribution_permitted": "unverified",
+  "attribution_required": "unverified",
+  "restrictions": [
+    "No primary license text read - treat as unverified."
+  ],
+  "supported_formats": [
+    "safetensors (HF)",
+    "GGUF (official Ministral-3-8B-Instruct-2512-GGUF listed)"
+  ],
+  "context_length": 262144,
+  "architecture": {
+    "layers": 34,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "hidden_size": 4096,
+    "notes": "intermediate 14336, 32 attention heads per search excerpt of config.json."
+  },
+  "verification": {
+    "source_urls": [
+      "https://mistral.ai/news/mistral-3/ (search result only)",
+      "https://huggingface.co/mistralai/Ministral-3-8B-Base-2512 (search result only)",
+      "https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512-GGUF (search result only; indicates official GGUF repo exists)",
+      "https://github.com/mistralai/mistral-inference"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Apache-2.0 is reported by search-result summaries of Mistral's announcement/HF listing; mistral.ai and huggingface.co were egress-blocked, so no license text was read. Marked 'unverified' by registry rule (no primary document read).",
+      "Model is multimodal (language model + ~0.4B frozen vision encoder); parameter_count refers to the language model plus encoder as reported.",
+      "Mistral has used custom licenses for other models (e.g. MNPL, MRL per mistral-inference README); Ministral 3 must not be assumed to match."
+    ],
+    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+  }
+}

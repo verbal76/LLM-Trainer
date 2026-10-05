@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "LicenseVerification": {
+      "additionalProperties": false,
+      "properties": {
+        "source_urls": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Urls",
+          "type": "array"
+        },
+        "uncertainties": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uncertainties",
+          "type": "array"
+        },
+        "verified_on": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified On"
+        }
+      },
+      "title": "LicenseVerification",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/base_model_license_entry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Machine-readable license facts for one exact base-model version.",
+  "properties": {
+    "attribution_required": {
+      "enum": [
+        "yes",
+        "no",
+        "conditional",
+        "unverified"
+      ],
+      "title": "Attribution Required",
+      "type": "string"
+    },
+    "commercial_use": {
+      "enum": [
+        "yes",
+        "no",
+        "conditional",
+        "unverified"
+      ],
+      "title": "Commercial Use",
+      "type": "string"
+    },
+    "derivative_adapter_permitted": {
+      "enum": [
+        "yes",
+        "no",
+        "conditional",
+        "unverified"
+      ],
+      "title": "Derivative Adapter Permitted",
+      "type": "string"
+    },
+    "exact_version": {
+      "title": "Exact Version",
+      "type": "string"
+    },
+    "fine_tuning_permitted": {
+      "enum": [
+        "yes",
+        "no",
+        "conditional",
+        "unverified"
+      ],
+      "title": "Fine Tuning Permitted",
+      "type": "string"
+    },
+    "license_id": {
+      "title": "License Id",
+      "type": "string"
+    },
+    "license_url": {
+      "title": "License Url",
+      "type": "string"
+    },
+    "model_family": {
+      "title": "Model Family",
+      "type": "string"
+    },
+    "redistribution_permitted": {
+      "enum": [
+        "yes",
+        "no",
+        "conditional",
+        "unverified"
+      ],
+      "title": "Redistribution Permitted",
+      "type": "string"
+    },
+    "restrictions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Restrictions",
+      "type": "array"
+    },
+    "supported_formats": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Formats",
+      "type": "array"
+    },
+    "verification": {
+      "$ref": "#/$defs/LicenseVerification"
+    }
+  },
+  "required": [
+    "model_family",
+    "exact_version",
+    "license_id",
+    "license_url",
+    "commercial_use",
+    "fine_tuning_permitted",
+    "derivative_adapter_permitted",
+    "redistribution_permitted",
+    "attribution_required",
+    "verification"
+  ],
+  "title": "BaseModelLicenseEntry",
+  "type": "object",
+  "x-schema-version": 1
+}

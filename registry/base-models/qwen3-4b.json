@@ -1,0 +1,49 @@
+{
+  "schema": "llm-trainer/base-model-entry",
+  "schema_version": 1,
+  "model_family": "Qwen3",
+  "exact_version": "Qwen3-4B (2504 generation, hybrid thinking)",
+  "hf_repo_or_source": "Qwen/Qwen3-4B",
+  "parameter_count": "4B (nominal)",
+  "license_id": "Apache-2.0",
+  "license_url": "https://github.com/QwenLM/Qwen3 (README: 'All our open-weight models are licensed under Apache 2.0'); per-repo file https://huggingface.co/Qwen/Qwen3-4B/blob/main/LICENSE (listed by search, not fetched)",
+  "commercial_use": "yes",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Apache-2.0 s.4: redistributors must include a copy of the License, retain copyright/attribution notices, and mark modified files with prominent change notices (verified against apache.org text).",
+    "Apache-2.0 s.6: no trademark license; do not imply endorsement by the model publisher.",
+    "Apache-2.0 s.3: patent licenses terminate if the licensee sues alleging the Work infringes a patent.",
+    "Training-data provenance of the base model is NOT covered by this registry entry; the license of the weights does not by itself settle rights in the pretraining data (not assessed)."
+  ],
+  "supported_formats": [
+    "safetensors (Hugging Face transformers)",
+    "GGUF (llama.cpp >= b5401 recommended per Qwen README)",
+    "ExecuTorch .pte (Qwen3 0.6B/1.7B/4B documented in ExecuTorch demo docs; 8B not confirmed)"
+  ],
+  "context_length": 40960,
+  "architecture": {
+    "layers": 36,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "hidden_size": 2560,
+    "notes": "Dense GQA transformer; max_position_embeddings 40960 per config excerpt (native 32k; longer via YaRN per vendor docs - not verified)."
+  },
+  "verification": {
+    "source_urls": [
+      "https://github.com/QwenLM/Qwen3",
+      "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "https://huggingface.co/Qwen/Qwen3-4B/blob/main/config.json (search excerpt only)",
+      "https://docs.pytorch.org/executorch/stable/llm/export-llm.html"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Qwen3-2507 refreshed 4B/30B/235B variants exist (Qwen3-4B-Instruct-2507 / Thinking-2507); this entry is the original 2504 4B/8B. Newer Qwen3.5 supersedes it.",
+      "Architecture values from search excerpts of config.json, not the file itself.",
+      "LICENSE file in the model repo not read (huggingface.co blocked)."
+    ],
+    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+  }
+}
