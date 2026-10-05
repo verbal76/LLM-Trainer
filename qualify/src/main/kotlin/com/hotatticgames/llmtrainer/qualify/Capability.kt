@@ -488,6 +488,15 @@ object CapabilityJson {
         o.dbl("train_minutes"), o.bool("train_completed"), o.bool("train_oom"), int(o, "thermal_max_status"), o.dbl("battery_drop_pct"),
     )
 
+    /** Parses one `device_measurement.v1` record (JSON text). Throws [JsonException] when malformed or of another schema. */
+    fun parseRecord(json: String): MeasurementRecord {
+        val o = MiniJson.parse(json).asObj() ?: throw JsonException("record must be a JSON object")
+        val schema = o.str("schema_id")
+        if (schema != null && schema != "device_measurement.v1") throw JsonException("unsupported record schema $schema")
+        if (o.str("kind") !in setOf("load", "inference", "training")) throw JsonException("kind must be load, inference or training")
+        return record(o)
+    }
+
     fun state(o: Map<String, Any?>) = DeviceState(int(o, "thermal_status"), o.dbl("battery_pct"), o.bool("charging"), o.bool("power_save"))
 
     fun capPolicy(o: Map<String, Any?>): CapabilityPolicy {
