@@ -68,10 +68,17 @@ jobs:
           ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease \
             -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
 
+      - name: Staged assets + APK contents (diagnostic)
+        run: |
+          echo "--- generated assets"; find app/build/generated/hag-assets -type f -exec ls -l {} + || true
+          echo "--- bundle outputs"; find bundle/build/ota -maxdepth 1 -type f -exec ls -l {} + || true
+          echo "--- debug apk assets"; unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/" || true
+
       - name: Logo inside APK is byte-identical
         run: |
-          unzip -p app/build/outputs/apk/release/app-release-unsigned.apk assets/branding/studio-logo.png 2>/dev/null | sha256sum || \
-          unzip -p app/build/outputs/apk/release/app-release.apk assets/branding/studio-logo.png | sha256sum
+          H=e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/branding/studio-logo.png | sha256sum | grep -q "$H"
+          unzip -p app/build/outputs/apk/release/app-release.apk assets/branding/studio-logo.png | sha256sum | grep -q "$H"
 
       - name: Enable KVM
         run: |
