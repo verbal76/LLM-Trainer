@@ -77,7 +77,12 @@ jobs:
           cp prev/*.hagb out/ 2>/dev/null || true
           ./gradlew --no-daemon -q :ota-core:run --args="index --out $PWD/out/channel.json --bundle-id llmtrainer-main --channel stable --base-url $BASE_URL $(ls $PWD/out/*.hagb | tr '\n' ' ')"
           cat out/channel.json
+      - name: Keep the previous channel for rollback
+        run: |
+          gh release download "$CHANNEL_TAG" -p channel.json -D prevchan 2>/dev/null || echo '{"schema":1,"bundleId":"llmtrainer-main","channel":"stable","generatedAt":"rollback","bundles":[]}' > prevchan/channel.json || true
+          mkdir -p prevchan; [ -f prevchan/channel.json ] || echo '{"schema":1,"bundleId":"llmtrainer-main","channel":"stable","generatedAt":"rollback","bundles":[]}' > prevchan/channel.json
       - name: Publish to ota-stable
+        id: publish
         run: |
           gh release view "$CHANNEL_TAG" >/dev/null 2>&1 || gh release create "$CHANNEL_TAG" --prerelease --target "$GITHUB_SHA" \
             --title "OTA channel (stable)" --notes "Rolling OTA update channel read by the app. Not an installable release."
@@ -103,3 +108,20 @@ jobs:
           PY
           cd ..
           ./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/pub/b$BV.hagb --pub $PWD/ota/keys/prod.pub --key-id k1 --host-api $HOST_API_MIN --native-abi $NATIVE_ABI --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --sdk 37 --bundle-id llmtrainer-main --channel stable"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Canary - released v1 APK updates itself from the published channel (emulator)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: bash tools/ci/canary-v1-ota.sh https://github.com/${{ github.repository }}/releases/download/v1/LLM-Trainer-v1.apk "What this app does"
+      - name: ROLLBACK the channel (canary failed)
+        if: failure() && steps.publish.outcome == 'success'
+        run: |
+          echo "::warning::Canary failed: restoring the previous channel.json so no device is offered this bundle."
+          gh release upload "$CHANNEL_TAG" prevchan/channel.json --clobber
