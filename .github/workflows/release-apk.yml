@@ -99,7 +99,6 @@ jobs:
           "$BT/apksigner" verify --print-certs "LLM-Trainer-v$VERSION.apk" | tee signer.txt
           grep -q "CN=Android Debug" signer.txt && { echo "::error::APK signed with debug key"; exit 1; } || true
           "$BT/aapt2" dump badging "LLM-Trainer-v$VERSION.apk" | grep -E "package:|application-label:" 
-          echo "e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e  /dev/stdin" > /dev/null
           unzip -p "LLM-Trainer-v$VERSION.apk" assets/branding/studio-logo.png | sha256sum | grep -q e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e
           mkdir -p chk && unzip -p "LLM-Trainer-v$VERSION.apk" assets/builtin/llmtrainer-main.hagb > chk/builtin.hagb
           ./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/chk/builtin.hagb --pub $PWD/ota/keys/prod.pub --key-id k1 --host-api 1 --native-abi 1 --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --sdk 34 --bundle-id llmtrainer-main --channel stable"
