@@ -3,6 +3,12 @@
     "GateCheck": {
       "additionalProperties": false,
       "properties": {
+        "code": {
+          "default": "OK",
+          "description": "Machine-readable reason code.",
+          "title": "Code",
+          "type": "string"
+        },
         "field": {
           "title": "Field",
           "type": "string"
@@ -87,6 +93,22 @@
           "title": "Entry Id",
           "type": "string"
         },
+        "reason_codes": {
+          "description": "Machine-readable codes for every blocking check.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "remediation": {
+          "description": "What the owner must do to unblock.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Remediation",
+          "type": "array"
+        },
         "requested_use": {
           "additionalProperties": true,
           "title": "Requested Use",
@@ -98,6 +120,16 @@
           },
           "title": "Restrictions",
           "type": "array"
+        },
+        "verification_state": {
+          "default": "UNVERIFIED",
+          "enum": [
+            "VERIFIED",
+            "UNVERIFIED",
+            "DISALLOWED"
+          ],
+          "title": "Verification State",
+          "type": "string"
         }
       },
       "required": [

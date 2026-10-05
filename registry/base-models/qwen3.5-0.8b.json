@@ -1,6 +1,5 @@
 {
-  "schema": "llm-trainer/base-model-entry",
-  "schema_version": 1,
+  "schema_version": 2,
   "model_family": "Qwen3.5",
   "exact_version": "Qwen3.5-0.8B",
   "hf_repo_or_source": "Qwen/Qwen3.5-0.8B",
@@ -30,9 +29,31 @@
     "kv_heads": null,
     "head_dim": null,
     "hidden_size": null,
+    "attention": null,
     "notes": "Config excerpt not obtained; layers/heads unverified."
   },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-0.8B",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
   "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
     "source_urls": [
       "https://github.com/QwenLM/Qwen3.5",
       "https://raw.githubusercontent.com/QwenLM/Qwen3.5/main/README.md",
@@ -44,8 +65,8 @@
     "uncertainties": [
       "huggingface.co was blocked by the egress proxy; the per-repo LICENSE file was NOT read directly. Apache-2.0 is taken from the Qwen GitHub README (read via summarizer) plus secondary articles. The Qwen3.5 README itself only says to 'find the license file released with the model weights'. The factory license gate MUST read and hash the LICENSE file in the model repo at download time.",
       "Architecture values come from search-engine excerpts of config.json, not from the file itself.",
-      "Hybrid architecture (Gated DeltaNet linear attention interleaved with full attention every 4th layer, per config excerpt): KV-cache cost applies only to the full-attention layers but linear layers carry fixed recurrent state; the device-fit estimator must not use the dense-transformer KV formula for this family."
-    ],
-    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+      "Hybrid architecture (Gated DeltaNet linear attention interleaved with full attention every 4th layer, per config excerpt): KV-cache cost applies only to the full-attention layers but linear layers carry fixed recurrent state; the device-fit estimator must not use the dense-transformer KV formula for this family.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
   }
 }

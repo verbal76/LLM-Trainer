@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .schemas import ARTIFACT_TYPES, SCHEMA_VERSION
+from .schemas import ARTIFACT_TYPES, ENTRY_SCHEMA_VERSION, SCHEMA_VERSION
 
 
 def generate() -> dict[str, dict]:
@@ -14,7 +14,7 @@ def generate() -> dict[str, dict]:
         schema = cls.model_json_schema()
         schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
         schema["$id"] = f"https://hotatticgames.example/llmtrainer/schemas/v{SCHEMA_VERSION}/{kind}.schema.json"
-        schema["x-schema-version"] = SCHEMA_VERSION
+        schema["x-schema-version"] = ENTRY_SCHEMA_VERSION if kind == "base_model_license_entry" else SCHEMA_VERSION
         out[kind] = schema
     return out
 

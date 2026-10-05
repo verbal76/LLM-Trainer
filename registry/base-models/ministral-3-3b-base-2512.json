@@ -1,6 +1,5 @@
 {
-  "schema": "llm-trainer/base-model-entry",
-  "schema_version": 1,
+  "schema_version": 2,
   "model_family": "Ministral 3",
   "exact_version": "Ministral-3-3B-Base-2512",
   "hf_repo_or_source": "mistralai/Ministral-3-3B-Base-2512",
@@ -25,9 +24,31 @@
     "kv_heads": 8,
     "head_dim": null,
     "hidden_size": 3072,
+    "attention": null,
     "notes": "'8 query groups' reported = kv_heads 8; YaRN extension to 256K."
   },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/mistralai/Ministral-3-3B-Base-2512",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
   "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
     "source_urls": [
       "https://mistral.ai/news/mistral-3/ (search result only)",
       "https://huggingface.co/mistralai/Ministral-3-8B-Base-2512 (search result only)",
@@ -38,8 +59,8 @@
     "uncertainties": [
       "Apache-2.0 is reported by search-result summaries of Mistral's announcement/HF listing; mistral.ai and huggingface.co were egress-blocked, so no license text was read. Marked 'unverified' by registry rule (no primary document read).",
       "Model is multimodal (language model + ~0.4B frozen vision encoder); parameter_count refers to the language model plus encoder as reported.",
-      "Mistral has used custom licenses for other models (e.g. MNPL, MRL per mistral-inference README); Ministral 3 must not be assumed to match."
-    ],
-    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+      "Mistral has used custom licenses for other models (e.g. MNPL, MRL per mistral-inference README); Ministral 3 must not be assumed to match.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
   }
 }

@@ -1,6 +1,5 @@
 {
-  "schema": "llm-trainer/base-model-entry",
-  "schema_version": 1,
+  "schema_version": 2,
   "model_family": "Olmo 3",
   "exact_version": "Olmo-3-1025-7B (base)",
   "hf_repo_or_source": "allenai/Olmo-3-1025-7B",
@@ -30,9 +29,31 @@
     "kv_heads": 32,
     "head_dim": 128,
     "hidden_size": 4096,
+    "attention": null,
     "notes": "kv_heads 32 = full multi-head attention (no GQA reduction): KV cache per token is ~4x that of an 8-KV-head 8B model; head_dim derived 4096/32."
   },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/allenai/Olmo-3-1025-7B",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
   "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
     "source_urls": [
       "https://github.com/allenai/OLMo-core",
       "https://huggingface.co/allenai/Olmo-3-1025-7B (search excerpt: 'code and model are released under Apache 2.0')",
@@ -42,8 +63,8 @@
     "verified_on": "2026-10-05",
     "uncertainties": [
       "Model-card text seen via search excerpt, not fetched directly.",
-      "llama.cpp architecture support for Olmo 3 not verified in this round."
-    ],
-    "method": "WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+      "llama.cpp architecture support for Olmo 3 not verified in this round.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
   }
 }
