@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "artifact_id": "qwen3-1.7b-q8_0",
+  "refresh_state": "unrefreshed",
+  "refreshed_at": null,
+  "optional": false,
+  "published": null,
+  "family": "Qwen3",
+  "base_repo": "Qwen/Qwen3-1.7B",
+  "source": {
+    "repo": "Qwen/Qwen3-1.7B-GGUF",
+    "repo_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF",
+    "file": null,
+    "file_glob": "*q8_0.gguf",
+    "revision": null,
+    "download_url": null
+  },
+  "format": "gguf",
+  "quantization": "Q8_0",
+  "precision": "quantized",
+  "size_bytes": null,
+  "sha256": null,
+  "parameter_count_nominal_b": 1.7,
+  "parameter_count": null,
+  "architecture": {
+    "name": null,
+    "layers": null,
+    "kv_heads": null,
+    "heads": null,
+    "head_dim": null,
+    "embd": null,
+    "ffn": null,
+    "ctx_train": null,
+    "vocab": null
+  },
+  "chat_template_present": null,
+  "chat_template_sha256": null,
+  "runtime_compat": {
+    "llama.cpp": {
+      "architecture": null,
+      "supported": "unverified",
+      "min_build": null
+    },
+    "hag-engine": {
+      "architecture": null,
+      "supported": "unverified",
+      "min_build": null
+    }
+  },
+  "training": {
+    "class": "inference_only",
+    "reasons": [
+      "block-quantized GGUF weights cannot be trained in place; the on-device trainer works on full-precision weights (F32 compute)"
+    ],
+    "model_class_if_full_precision": "external_only",
+    "training_source_artifact_id": null,
+    "assumptions": "F32-only trainer; docs/v2/TRAINING_FEASIBILITY.md not yet available"
+  },
+  "license": {
+    "state": "UNVERIFIED",
+    "expected_spdx": "Apache-2.0",
+    "spdx_id": null,
+    "reasons": [
+      "unrefreshed: the catalog-refresh CI job has not yet read the license text or the model card"
+    ],
+    "evidence": null
+  },
+  "notes": [
+    "UNREFRESHED placeholder: no hash, size or revision is known. The app treats this artifact as NOT downloadable."
+  ]
+}

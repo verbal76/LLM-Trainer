@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "artifact_id": "smollm2-135m-instruct-f32",
+  "refresh_state": "unrefreshed",
+  "refreshed_at": null,
+  "optional": true,
+  "published": null,
+  "family": "SmolLM2",
+  "base_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+  "source": {
+    "repo": "HuggingFaceTB/SmolLM2-135M-Instruct-GGUF",
+    "repo_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF",
+    "file": null,
+    "file_glob": "*f32.gguf",
+    "revision": null,
+    "download_url": null
+  },
+  "format": "gguf",
+  "quantization": "F32",
+  "precision": "f32",
+  "size_bytes": null,
+  "sha256": null,
+  "parameter_count_nominal_b": 0.135,
+  "parameter_count": null,
+  "architecture": {
+    "name": null,
+    "layers": null,
+    "kv_heads": null,
+    "heads": null,
+    "head_dim": null,
+    "embd": null,
+    "ffn": null,
+    "ctx_train": null,
+    "vocab": null
+  },
+  "chat_template_present": null,
+  "chat_template_sha256": null,
+  "runtime_compat": {
+    "llama.cpp": {
+      "architecture": null,
+      "supported": "unverified",
+      "min_build": null
+    },
+    "hag-engine": {
+      "architecture": null,
+      "supported": "unverified",
+      "min_build": null
+    }
+  },
+  "training": {
+    "class": "local_full",
+    "reasons": [
+      "small enough that F32 weights + 12 bytes/param optimizer state can fit a high-RAM phone (device profiler decides per device)"
+    ],
+    "model_class_if_full_precision": "local_full",
+    "training_source_artifact_id": null,
+    "assumptions": "F32-only trainer; docs/v2/TRAINING_FEASIBILITY.md not yet available"
+  },
+  "license": {
+    "state": "UNVERIFIED",
+    "expected_spdx": "Apache-2.0",
+    "spdx_id": null,
+    "reasons": [
+      "unrefreshed: the catalog-refresh CI job has not yet read the license text or the model card"
+    ],
+    "evidence": null
+  },
+  "notes": [
+    "UNREFRESHED placeholder: no hash, size or revision is known. The app treats this artifact as NOT downloadable."
+  ]
+}

@@ -29,4 +29,6 @@ tasks.test {
     useJUnit()
     // The SAME golden file the Python spec generates (factory/tools/gen_golden_device.py).
     systemProperty("golden.path", rootProject.file("factory/tests/golden/device_qualification.v1.json").path)
+    // Device profiler v2 (per-artifact capabilities): factory/tools/gen_golden_capability.py
+    systemProperty("golden.capability.path", rootProject.file("factory/tests/golden/device_capability.v1.json").path)
 }

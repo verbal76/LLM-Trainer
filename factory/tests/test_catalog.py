@@ -28,7 +28,7 @@ def mk(size=None, verification=None, variants="default", **over) -> BaseModelLic
 
 def test_shipped_catalog_lists_and_shows_everything():
     reg = cat.load_registry()
-    assert len(cat.catalog_rows(reg)) == 19
+    assert len(cat.catalog_rows(reg)) == 22
     for e in reg.entries.values():
         rec = cat.catalog_entry(e)
         json.dumps(rec)

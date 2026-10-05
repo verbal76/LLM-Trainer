@@ -161,7 +161,7 @@ class CatalogTest {
         assertEquals("https://example.org/q.gguf", v.downloadUrl)
         assertEquals("ab".repeat(32), v.sha256)
         assertEquals("registry", v.provenance.evidenceLevel)
-        assertEquals(2, rig.open().model(TK.MODEL).ok().variants.size)           // merged with the registry's own variant
+        assertEquals(3, rig.open().model(TK.MODEL).ok().variants.size)           // registry page variant + the (unrefreshed) catalog artifact + this override
     }
 
     @Test fun addVariantOverrideValidatesAndMerges() {

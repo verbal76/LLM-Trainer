@@ -31,7 +31,12 @@ class StudioCore(
     private val appVersion: String = "0.1.0",
     private val policy: SafetyPolicy = SafetyPolicy(),
     registryFiles: List<Pair<String, String>> = EmbeddedRegistry.files,
+    artifactFiles: List<Pair<String, String>> = EmbeddedArtifacts.files,
+    canonicalLicensesJson: String = EmbeddedArtifacts.canonicalLicenses,
 ) : Studio {
+
+    /** Model manager + device profiler (additive API, see studio-api ModelsApi.kt). */
+    val models: ModelsService
 
     /** Non-fatal problems found while loading state (corrupt files set aside, unreadable projects, invalid registry entries). */
     val startupProblems: List<String> get() = problems.toList()
@@ -68,10 +73,13 @@ class StudioCore(
         rootDir.mkdirs()
         wsDir.mkdirs(); projectsDir.mkdirs()
         registry = Registry.parseAll(registryFiles) { problems.add(it) }
-        licenses = LicenseService(wsDir, { registry.associateBy { it.entryId } }, http, clock).also { problems.addAll(it.problems) }
+        val canonical = try { ArtifactRegistry.parseCanonical(canonicalLicensesJson) } catch (e: Exception) { problems.add("canonical license index is invalid: ${e.message}"); emptyMap() }
+        val artifactCatalog = ArtifactCatalog(ArtifactRegistry.parseAll(artifactFiles) { problems.add(it) }, canonical)
+        licenses = LicenseService(wsDir, { registry.associateBy { it.entryId } }, http, clock) { e -> artifactCatalog.licenseEvidence(e) }.also { problems.addAll(it.problems) }
         val files = ModelFiles(File(wsDir, "models"))
-        catalogSvc = CatalogService(registry, licenses, files, File(wsDir, "catalog_overrides.json"), deviceSnapshotJson, policy, clock) { problems.add(it) }
+        catalogSvc = CatalogService(registry, licenses, files, File(wsDir, "catalog_overrides.json"), deviceSnapshotJson, policy, clock, artifactCatalog) { problems.add(it) }
         acquisition = AcquisitionService(wsDir, catalogSvc, licenses, files, http, clock, storage, runner, ids, policy, deviceSnapshotJson).also { problems.addAll(it.problems) }
+        models = ModelsService(wsDir, catalogSvc, licenses, files, acquisition, deviceSnapshotJson, policy) { problems.add(it) }
         loadProjects()
     }
 
