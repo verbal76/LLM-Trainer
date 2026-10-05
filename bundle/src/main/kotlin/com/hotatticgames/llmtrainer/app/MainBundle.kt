@@ -42,7 +42,7 @@ private class MainApp(private val host: HostServices) : BundleApp {
     }
 
     override fun onResume() { ctl?.onResume() }
-    override fun onPause() {}
+    override fun onPause() { ctl?.onPauseHook() }
 
     override fun onBackPressed(): Boolean = ctl?.back() ?: false
 }

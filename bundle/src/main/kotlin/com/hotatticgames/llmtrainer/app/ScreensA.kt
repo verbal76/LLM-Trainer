@@ -41,6 +41,12 @@ internal fun buildScreen(c: Ctl, r: Route, col: LinearLayout) {
         Kind.EVAL -> evalScreen(c, pid, col)
         Kind.SPECIALIST -> specialistScreen(c, pid, col)
         Kind.UPDATES -> updatesScreen(c, col)
+        Kind.MODELS -> modelsScreen(c, pid, col)
+        Kind.CHAT -> chatScreen(c, pid, col)
+        Kind.TRAIN_LOCAL -> trainLocalScreen(c, pid, col)
+        Kind.AB -> abScreen(c, pid, col)
+        Kind.SPECIALISTS -> specialistsScreen(c, pid, col)
+        Kind.ABOUT -> aboutScreen(c, col)
     }
 }
 
@@ -59,15 +65,16 @@ internal fun firstRunScreen(c: Ctl, col: LinearLayout) {
             "everything for training and reuse.", 14f, u.ink, topDp = 6))
     col.addView(card)
     val no = u.card()
-    no.addView(u.tv("What it does NOT do on this phone (yet)", 15f, u.warn, true))
+    no.addView(u.tv("What it does NOT do, or only under conditions", 15f, u.warn, true))
     no.addView(u.tv(
-        "- The phone does NOT train models in this version. It prepares a training job package that a desktop/GPU run " +
-            "consumes.\n" +
-            "- There is no on-device inference runtime in this app version, so the phone cannot evaluate a model. " +
-            "Evaluation runs on the desktop; you import the results here.\n" +
-            "- A reference package (retrieval over your sources) is NOT training. Prompt instructions are NOT training.\n" +
+        "- A model runs and is specialized on this phone only if the native engine works on it, a base model file is installed, " +
+            "your dataset is approved and the phone is charging, cool and has enough free memory. Small models (up to roughly 0.5B parameters) " +
+            "are practical; larger ones take hours or are not practical. If something is missing, the app tells you what instead of pretending.\n" +
+            "- A desktop job package is an optional fallback that you choose. The app never sends work to a desktop on its own.\n" +
+            "- A reference package (retrieval over your sources) is NOT training. Prompt instructions are NOT training. Source excerpts in a chat prompt are labelled as retrieval.\n" +
+            "- Fine-tuning can make a model forget general knowledge, so a specialist is only called better when the held-out evaluation, including a retention check, supports it.\n" +
             "- Device recommendations are estimates until a real on-device benchmark exists.\n" +
-            "- Your source documents stay on this device unless you choose to export or share a package.", 14f, u.ink, topDp = 6))
+            "- Models are never downloaded without your confirmation. Your source documents stay on this device unless you choose to export or share a package.", 14f, u.ink, topDp = 6))
     col.addView(no)
     col.addView(u.button("Got it, continue", "btn:firstrun-ok") { c.markFirstRunDone(); c.resetTo(Route(Kind.DASHBOARD)) })
 }
@@ -77,14 +84,16 @@ private class DashData(val projects: List<ProjectSummary>, val device: DevicePro
 
 internal fun dashboardScreen(c: Ctl, col: LinearLayout) {
     val u = c.ui
-    col.addView(u.tv("Turn authorized domain material into a portable specialist model package. Training runs on a desktop; " +
-        "this phone prepares, reviews and packages.", 13f, u.muted, topDp = 4))
+    col.addView(u.tv("Turn authorized domain material into a portable specialist model. On a capable phone the specialist is trained and checked on the phone itself; " +
+        "a desktop job is an optional fallback you choose.", 13f, u.muted, topDp = 4))
     col.addView(u.button("Create specialist", "btn:create") { c.go(Route(Kind.CREATE)) })
     val dyn = u.col()
     col.addView(dyn)
+    col.addView(u.button("Model manager", "btn:models", false) { c.go(Route(Kind.MODELS)) })
     col.addView(u.button("Device & recommendations", "btn:device", false) { c.go(Route(Kind.DEVICE)) })
     col.addView(u.button("Model catalog", "btn:catalog", false) { c.go(Route(Kind.CATALOG)) })
     col.addView(u.button("Updates & diagnostics", "btn:updates", false) { c.go(Route(Kind.UPDATES)) })
+    col.addView(u.button("About & what this phone can do", "btn:about-phone", false) { c.go(Route(Kind.ABOUT)) })
     col.addView(u.button("What this app does and does not do", "btn:about", false) { c.go(Route(Kind.FIRSTRUN)) })
 
     fun fill(d: DashData) {
@@ -131,7 +140,7 @@ internal fun dashboardScreen(c: Ctl, col: LinearLayout) {
         dc.addView(u.tv("THIS DEVICE", 12f, u.accent, true))
         dc.addView(u.tv("${dv.deviceName} - Android API ${dv.androidApi} (${dv.abi})\nRAM ${fmtMb(dv.availableRamMb.toLong())} available of " +
             "${fmtMb(dv.totalRamMb.toLong())}; free storage ${fmtMb(dv.freeStorageMb)}\nOn-device runtime: ${dv.nativeRuntimeId} " +
-            "(no inference runtime in this app version)", 13f, u.ink, topDp = 4))
+            (if (dv.nativeRuntimeId.startsWith("hag-engine")) "(native engine present)" else "(no native engine on this install)"), 13f, u.ink, topDp = 4))
         dyn.addView(dc)
         if (d.ops.any { it.state == OperationState.RUNNING || it.state == OperationState.QUEUED }) {
             c.postDelayed(2000) { load(c, dyn) { x -> fill(x) } }
@@ -200,8 +209,27 @@ internal fun hubScreen(c: Ctl, pid: String?, col: LinearLayout) {
         val opt = u.card(8)
         opt.addView(u.tv("Optimize and benchmark on device", 15f, u.ink, true))
         opt.addView(u.badge("NOT AVAILABLE YET", u.muted))
-        opt.addView(u.tv("Needs an on-device inference runtime, which ships in a future app update. Nothing is claimed here.", 13f, u.muted, topDp = 4))
+        opt.addView(u.tv("Device benchmarks (time to first token, sustained speed, heat, memory pressure) are not recorded yet. Every speed and memory figure in the app is an estimate; nothing is claimed here.", 13f, u.muted, topDp = 4))
         col.addView(opt)
+        val phone = u.card(10)
+        phone.tag = "hub-phone"
+        phone.addView(u.tv("On this phone", 15f, u.ink, true))
+        val phoneStatus = u.tv("Checking what this phone can do...", 12f, u.muted, topDp = 4)
+        phoneStatus.tag = "hub-phone-status"
+        phone.addView(phoneStatus)
+        phone.addView(u.button("Model manager", "btn:hub-model-manager", false) { c.go(Route(Kind.MODELS, pid)) })
+        phone.addView(u.button("Chat (base model or specialist)", "btn:hub-chat", false) { c.go(Route(Kind.CHAT, pid)) })
+        phone.addView(u.button("Train on this phone", "btn:hub-train", false) { c.go(Route(Kind.TRAIN_LOCAL, pid)) })
+        phone.addView(u.button("Compare base and specialist (A/B)", "btn:hub-ab", false) { c.go(Route(Kind.AB, pid)) })
+        phone.addView(u.button("Specialists on this phone", "btn:hub-specialists-local", false) { c.go(Route(Kind.SPECIALISTS, pid)) })
+        phone.addView(u.button("About & what this phone can do", "btn:hub-about", false) { c.go(Route(Kind.ABOUT, pid)) })
+        col.addView(phone)
+        c.call({ c.studio.projectModelState(ProjectId(pid)) }) { ms ->
+            val chatB = if (ms.canChatBase.ok) "Chat with the base model: ready." else "Chat with the base model: ${ms.canChatBase.reason}"
+            val chatS = if (ms.canChatSpecialist.ok) "Chat with the specialist: ready." else "Specialist: ${ms.canChatSpecialist.reason}"
+            val tr = if (ms.canTrainLocally.ok) "Training on this phone: possible now." else "Training on this phone: ${ms.canTrainLocally.reason}"
+            phoneStatus.text = chatB + "\n" + chatS + "\n" + tr
+        }
         if (p.baseModelId != null) col.addView(u.button("Base model license evidence", "btn:hub-license", false) { c.go(Route(Kind.LICENSE, pid, p.baseModelId)) })
         col.addView(u.button("Packages and exports (training job, reference)", "btn:hub-packages", false) { c.go(Route(Kind.TRAINING, pid)) })
         col.addView(u.button("Evaluation", "btn:hub-eval", false) { c.go(Route(Kind.EVAL, pid)) })
@@ -228,7 +256,7 @@ internal fun deviceScreen(c: Ctl, pid: String?, col: LinearLayout) {
             "${d.deviceName}\nAndroid API ${d.androidApi}, ${d.abi}\nRAM: ${fmtMb(d.totalRamMb.toLong())} total, ${fmtMb(d.availableRamMb.toLong())} available now\n" +
                 "Free storage: ${fmtMb(d.freeStorageMb)}\nSafety reserve: ${(d.safetyReserveFraction * 100).toInt()}% (the model must leave this free so the phone keeps working normally)\n" +
                 "Inference runtime: ${d.nativeRuntimeId}", 13f, u.ink, topDp = 4))
-        dc.addView(u.tv("This app version has no on-device inference runtime, so nothing below has been measured on this phone. " +
+        dc.addView(u.tv("Nothing below has been measured on this phone yet. " +
             "Profiles are ESTIMATES from device numbers until a benchmark exists.", 12f, u.warn, topDp = 6))
         col.addView(dc)
         for (p in rec.profiles) {
