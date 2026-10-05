@@ -76,7 +76,22 @@ class Package:
         if model["content_hash"] != manifest["model_manifest_hash"]:
             raise PackageError("model manifest does not match export manifest")
         pkg.model = model
+        if not manifest["is_pipeline_validation_stub"]:
+            pkg._check_real_specialist()
         return pkg
+
+    def _check_real_specialist(self) -> None:
+        m = self.model
+        if m.get("local_experiment"):
+            raise PackageError("package derives from a local-experiment (unverified license) run")
+        if m["base_model"].get("license_state") != "VERIFIED":
+            raise PackageError(f"base model license_state is {m['base_model'].get('license_state')!r}, not VERIFIED")
+        declared = {a["path"]: a["sha256"] for a in m["artifacts"]}
+        for f in self.manifest["files"]:
+            if f["role"] == "adapter" and declared.get(f["path"]) != f["sha256"]:
+                raise PackageError(f"adapter file not matching model manifest: {f['path']}")
+        if not m.get("training_config_hash") or _sha(_canonical(m["training_config"])) != m["training_config_hash"]:
+            raise PackageError("training config hash mismatch")
 
     def _role_path(self, role: str) -> Path:
         for f in self.manifest["files"]:
@@ -106,6 +121,36 @@ class Package:
     @property
     def evaluation(self) -> dict:
         return json.loads(self._role_path("evaluation_report").read_text(encoding="utf-8"))
+
+    @property
+    def base_model(self) -> dict:
+        """Base-model identity + license state the adapter must be applied to (weights are NOT in the package)."""
+        return dict(self.model["base_model"])
+
+    @property
+    def license_state(self) -> str | None:
+        return self.model["base_model"].get("license_state")
+
+    @property
+    def adapters(self) -> list[dict]:
+        return [{"path": str(self.root / a["path"]), "sha256": a["sha256"], "size_bytes": a["size_bytes"]}
+                for a in self.model["artifacts"] if a["role"] == "adapter"]
+
+    @property
+    def tokenizer_files(self) -> dict[str, str]:
+        return dict(self.model["tokenizer"]["files"])
+
+    @property
+    def training_config_hash(self) -> str | None:
+        return self.model.get("training_config_hash")
+
+    @property
+    def quantization(self) -> dict | None:
+        return self.model.get("quantization")
+
+    @property
+    def requirements(self) -> dict:
+        return dict(self.model["runtime"])
 
     def has_reference(self) -> bool:
         return self.manifest.get("reference") is not None

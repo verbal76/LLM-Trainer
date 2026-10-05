@@ -25,7 +25,14 @@ from pathlib import Path, PurePosixPath
 from .hashing import hash_file, hash_obj, hash_text, sha256_bytes
 from .licenses import RequestedUse, evaluate_gate
 from .schemas import (
+    ArtifactFile,
     BaseModelLicenseEntry,
+    BaseModelRef,
+    ContextAssumptions,
+    QuantizationInfo,
+    RuntimeRequirements,
+    TokenizerInfo,
+    TrainingRun,
     DatasetManifest,
     EvaluationRun,
     ExportPackage,
@@ -160,6 +167,114 @@ def finalize_package(
 
 
 # --------------------------------------------------------------------------- #
+# Real specialist package (adapter + tokenizer + training run + evaluation)
+# --------------------------------------------------------------------------- #
+
+
+def build_specialist_package(
+    out_dir: Path,
+    *,
+    run: TrainingRun,
+    run_output_dir: Path,
+    evalrun: EvaluationRun,
+    entry: BaseModelLicenseEntry,
+    sources: SourceManifest,
+    dataset: DatasetManifest,
+    chunk_texts: dict[tuple[str, str], str],
+    specialist_name: str,
+    specialist_version: str,
+    grade: str,
+    created_on: str,
+    runtime_formats: tuple[str, ...] = ("hf-peft-adapter",),
+    runtime_notes: tuple[str, ...] = (),
+    quantization: QuantizationInfo | None = None,
+    known_limitations: tuple[str, ...] = (),
+    commercial: bool = False,
+) -> ExportPackage:
+    """Refuses unless the base-model license is VERIFIED for redistribution and the run was not a local experiment."""
+    from .licenses import entry_hash
+    from .specialize.gating import PackagingRefused, redistribution_gate
+
+    if run.local_experiment_unverified_license:
+        raise PackagingRefused("run was a local experiment under an unverified license; it can never be packaged")
+    if run.status != "completed" or run.is_pipeline_validation_stub or run.executor == "stub":
+        raise PackagingRefused("only a completed real training run can be packaged (use the stub exporter for plumbing checks)")
+    gate, state = redistribution_gate(entry, commercial=commercial)
+    if state != "VERIFIED" or not gate.allowed:
+        raise PackagingRefused(f"base-model license is {state} for redistribution: " + "; ".join(gate.blocking))
+    if run.base_model_id != entry.entry_id or run.base_model_license_hash != entry_hash(entry):
+        raise PackagingRefused("training run was made against a different base-model license entry; re-gate and retrain")
+    if run.dataset_hash != dataset.content_hash or run.source_manifest_hash != sources.content_hash:
+        raise PackagingRefused("training run does not match the dataset/source manifests being packaged")
+    if evalrun.dataset_hash != dataset.content_hash or evalrun.evaluator.is_stub or evalrun.train_eval_group_overlap != 0:
+        raise PackagingRefused("evaluation run is stub, leaky, or for a different dataset")
+    adapter = {k: v for k, v in run.output_artifacts.items() if k.startswith("adapter/")}
+    tok = {k: v for k, v in run.output_artifacts.items() if k.startswith("tokenizer/")}
+    if not adapter or not tok:
+        raise PackagingRefused("training run has no adapter and/or tokenizer artifacts")
+    if out_dir.exists():
+        raise PackagingRefused(f"{out_dir} already exists; packages are never silently overwritten")
+
+    blobs = {}
+    for name, h in {**adapter, **tok}.items():
+        data = (run_output_dir / name).read_bytes()
+        if sha256_bytes(data) != h:
+            raise PackagingRefused(f"artifact changed since training: {name}")
+        blobs[name] = data
+    out_dir.mkdir(parents=True)
+    b = PackageBuilder(out_dir)
+    artifacts, tok_files = [], {}
+    for name in sorted(adapter):
+        b.add("adapter", f"model/{name}", blobs[name])
+        artifacts.append(ArtifactFile(path=f"model/{name}", sha256=adapter[name], size_bytes=len(blobs[name]), role="adapter"))
+    for name in sorted(tok):
+        b.add("tokenizer", name, blobs[name])
+        tok_files[name] = tok[name]
+    hp = run.hyperparameters
+    ctx = int(hp.get("max_seq_len", 0)) or 1
+    runtime = RuntimeRequirements(
+        runtimes=["transformers+peft"], formats=list(runtime_formats),
+        notes=["Adapter only: requires the base model weights, obtained separately under their own license.", *runtime_notes],
+    )
+    model = ModelManifest(
+        specialist_name=specialist_name, specialist_version=specialist_version,
+        base_model=BaseModelRef(model_family=entry.model_family, exact_version=entry.exact_version, license_id=entry.license_id,
+                                license_entry_hash=entry_hash(entry), license_state="VERIFIED"),
+        adapter_method=run.method, dataset_version=dataset.dataset_version, dataset_hash=dataset.content_hash,
+        source_manifest_version=sources.manifest_version, source_manifest_hash=sources.content_hash,
+        training_run_hash=run.content_hash, training_config=hp, training_config_hash=run.config_hash,
+        tokenizer=TokenizerInfo(name=str(hp.get("base_model_path", entry.entry_id)), files=tok_files),
+        context=ContextAssumptions(trained_context_tokens=ctx, max_supported_context_tokens=ctx, recommended_context_tokens=ctx),
+        quantization=quantization, runtime=runtime, evaluation_hashes=[evalrun.content_hash], export_date=created_on,
+        artifacts=artifacts, target_profile=grade,
+        known_limitations=list(known_limitations) or [
+            "Evaluation uses deterministic lexical heuristics; see evaluation notes for limits and sample sizes.",
+            "Exact facts (torque, clearances, ...) must come from the reference package, not model weights.",
+        ],
+    ).seal()
+    b.add("model_manifest", "manifests/model_manifest.json", model.to_json().encode())
+    b.add("training_run", "manifests/training_run.json", run.to_json().encode())
+    b.add("provenance_source_manifest", "manifests/source_manifest.json", sources.to_json().encode())
+    b.add("provenance_dataset_manifest", "manifests/dataset_manifest.json", dataset.to_json().encode())
+    b.add("runtime_manifest", "manifests/runtime_manifest.json", json.dumps(runtime.model_dump(mode="json"), indent=2, sort_keys=True).encode())
+    b.add("evaluation_report", "evaluation/evaluation_run.json", evalrun.to_json().encode())
+    b.add("license_bundle", "license/base_model_license_entry.json", json.dumps(entry.model_dump(mode="json"), indent=2, sort_keys=True).encode())
+    b.add("license_gate", "license/license_gate.json", json.dumps(gate.model_dump(mode="json"), indent=2, sort_keys=True).encode())
+    b.add("attribution", "license/ATTRIBUTION.md", attribution_text(entry, specialist_name).encode())
+    chunks, index, n, excluded = build_reference_store(sources, chunk_texts)
+    ref = None
+    if n:
+        b.add("reference_chunks", "reference/chunks.jsonl", chunks)
+        b.add("reference_index", "reference/index.json", index)
+        ref = ReferencePackageInfo(chunk_count=n, chunks_path="reference/chunks.jsonl", index_path="reference/index.json", excluded_source_ids=excluded)
+    b.add("readme", "README.md", (f"# {model.model_identity}\n\nLoRA/QLoRA adapter specialist. Needs the base model ({entry.entry_id}) "
+                                  "separately. Verify with `python consumer.py <dir>` (stdlib only).\n").encode())
+    return finalize_package(b, name=specialist_name, version=specialist_version, grade=grade, model=model, sources=sources,
+                            dataset=dataset, evaluations=[evalrun], gate=gate, reference=ref, runtime_formats=list(runtime_formats),
+                            created_on=created_on)
+
+
+# --------------------------------------------------------------------------- #
 # Validator
 # --------------------------------------------------------------------------- #
 
@@ -282,6 +397,10 @@ def validate_package(root: str | Path) -> ValidationReport:
     if not pkg.license_gate.allowed or not pkg.license_gate.requested_use.get("redistribute"):
         rep.err("export manifest license gate is not an allowed redistribution check")
 
+    # 3b. real-specialist requirements
+    if not pkg.is_pipeline_validation_stub:
+        _validate_real_specialist(root, model, evalrun, by_role, declared, rep)
+
     # 4. evaluation honesty
     if evalrun.train_eval_group_overlap != 0:
         rep.err("evaluation set overlaps training groups")
@@ -326,6 +445,41 @@ def validate_package(root: str | Path) -> ValidationReport:
             if rights.get(r.split("/")[0]) != "yes":
                 rep.err(f"reference chunk from source without redistribution rights: {r}")
     return rep
+
+
+def _validate_real_specialist(root, model, evalrun, by_role, declared, rep: ValidationReport) -> None:
+    if model.local_experiment:
+        rep.err("package derives from a local-experiment (unverified license) run")
+    if model.base_model.license_state != "VERIFIED":
+        rep.err(f"base model license_state must be VERIFIED for redistribution, got {model.base_model.license_state}")
+    if "training_run" not in by_role or "adapter" not in by_role:
+        rep.err("real specialist package needs training_run and adapter files")
+        return
+    run = _load(root / by_role["training_run"][0].path, TrainingRun, rep, "training run")
+    if run is None:
+        return
+    if run.content_hash != model.training_run_hash:
+        rep.err("training run hash differs from model manifest")
+    if run.local_experiment_unverified_license:
+        rep.err("training run was a local experiment under an unverified license")
+    if run.is_pipeline_validation_stub or run.status != "completed":
+        rep.err("training run is a stub or did not complete")
+    if run.dataset_hash != model.dataset_hash:
+        rep.err("training run dataset differs from model manifest")
+    if not model.training_config_hash or hash_obj(model.training_config) != model.training_config_hash or run.config_hash != model.training_config_hash:
+        rep.err("training config hash does not match training config")
+    manifest_paths = {a.path for a in model.artifacts}
+    for f in by_role["adapter"]:
+        if f.path not in manifest_paths:
+            rep.err(f"adapter file not listed with hash in model manifest: {f.path}")
+    for name, h in model.tokenizer.files.items():
+        f = declared.get(name)
+        if f is None or f.sha256 != h:
+            rep.err(f"tokenizer file mismatch: {name}")
+    if evalrun.evaluator.is_stub:
+        rep.err("real specialist package carries a stub evaluation")
+    if evalrun.improvement_claim_allowed and (evalrun.n_eval_examples < 50 or any("forced to false" in n for n in evalrun.notes)):
+        rep.err("evaluation allows an improvement claim it cannot support")
 
 
 def canonical_package_identity(pkg: ExportPackage) -> str:
