@@ -110,7 +110,7 @@ jobs:
         include:
           # real pre-trained instruct model (llama architecture, tied embeddings), F16 weights: full train-on-device path
           - label: smollm2-135m-f16
-            repo: HuggingFaceTB/SmolLM2-135M-Instruct-GGUF
+            repo: bartowski/SmolLM2-135M-Instruct-GGUF
             glob: '*[Ff]16*.gguf'
             layers: '4'
             chat: '--chat'
