@@ -111,6 +111,8 @@ jobs:
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/branding/studio-logo.png | sha256sum | grep -q "$H"
           unzip -p app/build/outputs/apk/release/app-release.apk assets/branding/studio-logo.png | sha256sum | grep -q "$H"
 
+      - name: Pre-install Android Emulator (retrying)
+        run: bash tools/ci/preinstall-emulator.sh
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -192,6 +194,8 @@ jobs:
             -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures
           find runtime/build -name 'lib*.so' -path '*x86_64*' -exec ls -l {} + | head
 
+      - name: Pre-install Android Emulator (retrying)
+        run: bash tools/ci/preinstall-emulator.sh
       - name: Enable KVM
         if: steps.img.outputs.available == 'true'
         run: |
