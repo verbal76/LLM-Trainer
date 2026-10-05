@@ -14,10 +14,15 @@
 #include <unordered_map>
 #include <unordered_set>
 
+
 #if !defined(_WIN32)
 #  include <dirent.h>
 #  include <sys/stat.h>
 #endif
+
+// everything except the hag_* C API (explicit default visibility in hag_engine.h) stays hidden even when the
+// embedding build does not pass -fvisibility=hidden
+#pragma GCC visibility push(hidden)
 
 using namespace hag;
 

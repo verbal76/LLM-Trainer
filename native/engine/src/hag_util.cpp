@@ -9,6 +9,7 @@
 #include <cstring>
 #include <mutex>
 
+
 #if defined(_WIN32)
 #  include <direct.h>
 #  include <io.h>
@@ -18,6 +19,10 @@
 #  include <sys/stat.h>
 #  include <unistd.h>
 #endif
+
+// everything except the hag_* C API (explicit default visibility in hag_engine.h) stays hidden even when the
+// embedding build does not pass -fvisibility=hidden
+#pragma GCC visibility push(hidden)
 
 namespace hag {
 

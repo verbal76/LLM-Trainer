@@ -11,9 +11,14 @@
 #include <mutex>
 #include <thread>
 
+
 #ifndef HAG_LLAMA_COMMIT
-#define HAG_LLAMA_COMMIT "unknown"
+#define HAG_LLAMA_COMMIT "0c1e570"   /* = first 7 of native/llama.cpp.pin; CMake overrides; tests/test_engine.py checks they agree */
 #endif
+
+// everything except the hag_* C API (explicit default visibility in hag_engine.h) stays hidden even when the
+// embedding build does not pass -fvisibility=hidden
+#pragma GCC visibility push(hidden)
 
 using namespace hag;
 
