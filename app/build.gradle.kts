@@ -62,7 +62,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
-    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/hag-assets"))
     prop("otaFixturesDir", "").takeIf { it.isNotEmpty() }?.let { sourceSets["androidTest"].assets.srcDir(it) }
 }
 
@@ -82,5 +81,5 @@ val stageHagAssets = tasks.register<Copy>("stageHagAssets") {
         into("builtin"); rename { "llmtrainer-main.hagb" }
     }
 }
-tasks.matching { it.name.matches(Regex("merge.*Assets")) || it.name.matches(Regex("lint.*")) }
-    .configureEach { dependsOn(stageHagAssets) }
+// Wiring the task's output as the asset dir gives EVERY consumer (merge, lint, ...) the task dependency.
+android.sourceSets["main"].assets.srcDir(stageHagAssets.map { it.destinationDir })
