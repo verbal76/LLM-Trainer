@@ -134,8 +134,11 @@ class EngineTrainingTest {
         var lastStep = 0
         var reports = 0
         var finishedWithoutCancel = false
+        // Tune only the last layers here: a full-weight checkpoint of even a 135M model is >1 GB (weights + optimiser state),
+        // and two of them plus the working copy can exhaust the emulator's 10 GB data partition.
+        val cfg = config(checkpointEvery = 2).let { if (it.trainableLastLayers == 0) it.copy(trainableLastLayers = 2) else it }
         try {
-            e.train(base.absolutePath, facts, config(checkpointEvery = 2), work, patch.absolutePath) { ev ->
+            e.train(base.absolutePath, facts, cfg, work, patch.absolutePath) { ev ->
                 reports++
                 if (ev.phase == TrainEvent.TRAIN) lastStep = maxOf(lastStep, ev.step)
                 if (reports % 5 == 1) Log.i(Fixtures.TAG, "resume-test run 1: $ev")
@@ -153,9 +156,14 @@ class EngineTrainingTest {
         assertTrue("no checkpoint files in work dir (lastStep=$lastStep, reports=$reports)", files.isNotEmpty())
 
         var resumedFrom = 0
-        e.train(base.absolutePath, facts, config(checkpointEvery = 2), work, patch.absolutePath) { ev ->
-            resumedFrom = maxOf(resumedFrom, ev.resumedFromStep)
-            false
+        try {
+            e.train(base.absolutePath, facts, cfg, work, patch.absolutePath) { ev ->
+                resumedFrom = maxOf(resumedFrom, ev.resumedFromStep)
+                false
+            }
+        } catch (x: Throwable) {
+            Log.e(Fixtures.TAG, "resume-test run 2 threw: $x; free=${File(work).usableSpace / (1 shl 20)} MB", x)
+            throw x
         }
         Log.i(Fixtures.TAG, "resume-test run 2 resumedFrom=$resumedFrom")
         assertTrue("second run did not resume from the checkpoint (files after cancel: $files)", resumedFrom > 0)
