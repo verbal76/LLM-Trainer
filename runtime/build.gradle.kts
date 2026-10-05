@@ -74,7 +74,7 @@ val fetchLlamaCpp = tasks.register<Exec>("fetchLlamaCpp") {
     group = "hag"
     description = "Fetch the pinned llama.cpp checkout (or validate \$LLAMA_CPP_SRC)"
     if (llamaSrcEnv == null) {
-        inputs.file(fetchScript) // the pin lives in the script: a new pin re-runs the fetch
+        inputs.files(fetchScript) // the pin lives in the script: a new pin re-runs the fetch
         outputs.dir(llamaDir)
         outputs.upToDateWhen { File(llamaDir, "CMakeLists.txt").isFile }
         commandLine("bash", fetchScript.absolutePath, llamaDir.absolutePath)
