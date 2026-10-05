@@ -23,6 +23,10 @@ data class DiagnosticsReport(
     val pendingSlot: String?,
     val quarantined: Map<String, String>,
     val recentHistory: List<HistoryEvent>,
+    /** Source commit of the APK (BuildConfig.GIT_SHA). Defaults keep older callers/readers working. */
+    val buildSha: String = "",
+    /** "ready" when the native engine initialised, else "unavailable: <stage>: <reason>". */
+    val engineStatus: String = "",
 )
 
 object Diagnostics {
@@ -33,11 +37,14 @@ object Diagnostics {
         runningVersion: Int,
         runningName: String,
         runningSlot: String?,
+        buildSha: String = "",
+        engineStatus: String = "",
     ) = DiagnosticsReport(
         host.hostVersionName, host.hostVersionCode, host.hostApiLevel, host.nativeAbi, host.nativeRuntimeId,
         host.capabilities.sorted(), host.sdkInt, host.channel, host.builtinBundleVersion,
         runningSource, runningVersion, runningName, runningSlot,
         state.active, state.lastKnownGood, state.pending, state.quarantined, state.history.takeLast(20),
+        buildSha, engineStatus,
     )
 
     fun toJson(r: DiagnosticsReport): String = OtaJson.encodeToString(DiagnosticsReport.serializer(), r)
