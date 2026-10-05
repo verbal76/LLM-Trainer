@@ -409,3 +409,32 @@ def export_package(ws, model, dataset, sources, evalrun, entry, gate, adapter_by
         runtime_formats=model.runtime.formats,
         created_on=today(),
     )
+
+
+def package_specialist(ws: Workspace, run_id: str, eval_id: str, *, name: str | None = None, version: str = "0.1.0", grade: str = "desktop") -> tuple[ExportPackage, Path]:
+    """Package a real (non-stub) completed run + its evaluation. Raises PackagingRefused on license/local-experiment problems."""
+    from .packaging import build_specialist_package
+
+    run = TrainingRun.model_validate_json((ws.root / "runs" / run_id / "training_run.json").read_text(encoding="utf-8"))
+    evalrun = EvaluationRun.model_validate_json((ws.root / "evals" / f"{eval_id}.json").read_text(encoding="utf-8"))
+    if not run.verify() or not evalrun.verify():
+        raise WorkspaceError("training run or evaluation run content_hash mismatch")
+    sources = ws.sources()
+    dataset = next((d for d in ws.datasets() if d.content_hash == run.dataset_hash), None)
+    if dataset is None:
+        raise WorkspaceError("dataset used by this run is not in the workspace")
+    entry = ws.registry().get(run.base_model_id)
+    chunk_texts = {}
+    for s in sources.active_sources():
+        for line in (ws.root / "corpus" / f"{s.source_id}.jsonl").read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            chunk_texts[(s.source_id, row["chunk_id"])] = row["text"]
+    project = ws.project()
+    spec_name = name or project.project_id
+    out = ws.root / "exports" / f"{spec_name}_{version}_{run_id}"
+    pkg = build_specialist_package(
+        out, run=run, run_output_dir=ws.root / "runs" / run_id / "output", evalrun=evalrun, entry=entry, sources=sources,
+        dataset=dataset, chunk_texts=chunk_texts, specialist_name=spec_name, specialist_version=version, grade=grade,
+        created_on=today(), commercial=project.intended_use.commercial,
+    )
+    return pkg, out
