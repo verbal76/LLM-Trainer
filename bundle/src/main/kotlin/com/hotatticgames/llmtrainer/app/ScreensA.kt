@@ -303,6 +303,25 @@ internal fun modelScreen(c: Ctl, pid: String?, mid: String?, col: LinearLayout) 
         }
         lc.addView(u.button("Review license evidence", "btn:license-evidence") { c.go(Route(Kind.LICENSE, pid, m.id)) })
         col.addView(lc)
+        // Base-model selection does not depend on quantized on-device files: heavy adaptation runs on the desktop from the
+        // model's source repository, so the owner can always pick the model itself. Files are only needed for on-device use.
+        val sel = u.card(10)
+        sel.tag = "select-card"
+        sel.addView(u.tv("USE AS BASE MODEL", 12f, u.accent, true))
+        sel.addView(u.tv(if (m.variants.isEmpty())
+            "No quantized on-device files are registered for this model yet. You can still select it: training runs on the desktop from the source repository (${m.provenance.sourceUrl}). Selecting does not download anything and does not change the license state (training stays blocked until the license is VERIFIED)."
+        else "Select the model itself (desktop training uses the source repository), or pick a specific file below for on-device use.", 12f, u.muted, topDp = 4))
+        if (pid != null) {
+            sel.addView(u.button("Select as base model", "btn:select-base-model") {
+                c.call({ c.studio.selectBaseModel(ProjectId(pid), m.id, null) }, sticky = true) { _ ->
+                    c.success("Base model selected.")
+                    c.resetTo(Route(Kind.HUB, pid))
+                }
+            })
+        } else {
+            sel.addView(u.tv("Open this model from a specialist to select it as that specialist's base model.", 12f, u.muted, topDp = 6))
+        }
+        col.addView(sel)
         for (v in m.variants) {
             val vc = u.card(10)
             vc.tag = "variant:" + v.id

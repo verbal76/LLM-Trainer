@@ -226,8 +226,8 @@ class StudioUiFlowTest {
         clickPrefix("model:")
         waitScreen("MODEL")
         waitTag("license-card")
-        waitTagPrefix("variant:")
-        clickPrefix("btn:select-base:")
+        waitTag("select-card")
+        click("btn:select-base-model")
         waitScreen("HUB")
 
         // Add a source through the injectable test hook (the real picker stays the default path).
