@@ -1,0 +1,17 @@
+{
+  "project": "/path/to/workspace",
+  "base_model_id": "Qwen3@Qwen3-1.7B",
+  "base_model_path": "/models/Qwen3-1.7B",
+  "base_params_b": 1.7,
+  "method": "lora",
+  "seed": 1234,
+  "epochs": 3,
+  "learning_rate": 0.0002,
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "micro_batch_size": 4,
+  "grad_accum_steps": 4,
+  "max_seq_len": 1024,
+  "target_modules": ["all-linear"]
+}

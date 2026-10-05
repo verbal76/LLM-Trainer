@@ -11,6 +11,9 @@ dependencies = ["pydantic>=2.6,<3"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# Real LoRA/QLoRA specialization (NOT needed for CI, the stub pipeline or the reference consumer).
+# Install torch separately to match your CUDA/ROCm stack; bitsandbytes is for QLoRA (NVIDIA CUDA).
+train = ["torch>=2.3", "transformers>=4.46", "peft>=0.13", "trl>=0.12", "datasets>=2.20", "accelerate>=0.34", "bitsandbytes>=0.43; sys_platform == 'linux'"]
 
 [project.scripts]
 llmtrainer = "llmtrainer.cli:main"
