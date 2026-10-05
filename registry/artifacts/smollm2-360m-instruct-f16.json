@@ -8,8 +8,8 @@
   "family": "SmolLM2",
   "base_repo": "HuggingFaceTB/SmolLM2-360M-Instruct",
   "source": {
-    "repo": "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
-    "repo_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
+    "repo": "bartowski/SmolLM2-360M-Instruct-GGUF",
+    "repo_url": "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF",
     "file": null,
     "file_glob": "*f16.gguf",
     "revision": null,

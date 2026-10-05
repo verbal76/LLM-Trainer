@@ -8,8 +8,8 @@
   "family": "Qwen3",
   "base_repo": "Qwen/Qwen3-0.6B",
   "source": {
-    "repo": "Qwen/Qwen3-0.6B-GGUF",
-    "repo_url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF",
+    "repo": "bartowski/Qwen_Qwen3-0.6B-GGUF",
+    "repo_url": "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF",
     "file": null,
     "file_glob": "*bf16.gguf",
     "revision": null,
