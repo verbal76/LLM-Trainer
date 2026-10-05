@@ -316,7 +316,8 @@ class AcquisitionService(
 
     fun cancel(id: String): StudioResult<Operation> {
         val r = synchronized(lock) { ops[id] } ?: return StudioResult.Err(StudioError.NotFound("operation $id"))
-        if (r.op.isTerminal) return StudioResult.Err(StudioError.Conflict("Operation already finished"))
+        // A FAILED download that kept a resumable partial file may still be cancelled (discarding the partial).
+        if (r.op.isTerminal && !(r.op.state == OperationState.FAILED && r.op.resumable)) return StudioResult.Err(StudioError.Conflict("Operation already finished"))
         cancelFlags.getOrPut(id) { AtomicBoolean(false) }.set(true)
         // A task that is not currently running (queued, paused, failed-resumable) is cancelled here; a running one notices the flag.
         val running = synchronized(lock) { r.op.state == OperationState.RUNNING }
