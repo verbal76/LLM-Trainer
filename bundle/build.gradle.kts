@@ -14,13 +14,16 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+val bundledModules = listOf(":qualify", ":extract", ":studio-api", ":studio-core")
 val androidJar = rootProject.extra["androidJar"] as String
 val sdkRoot = rootProject.extra["androidSdkRoot"] as String
 
 dependencies {
     compileOnly(project(":host-api"))
     // Dependency-free (kotlin-stdlib only) qualifier; its classes are dexed INTO the bundle (see dexBundle).
-    compileOnly(project(":qualify"))
+    // Pure-JVM modules dexed into the bundle (see dexBundle). Order irrelevant; all are stdlib/org.json-only.
+    for (m in bundledModules) compileOnly(project(m))
+    compileOnly("org.json:json:20231013")
     compileOnly(files(androidJar))
 }
 
@@ -71,19 +74,22 @@ val dexBundle = tasks.register<Exec>("dexBundle") {
         val bt = File(sdkRoot, "build-tools").listFiles()!!.filter { File(it, "d8").exists() }.maxByOrNull { it.name }
             ?: error("no Android build-tools with d8 found under $sdkRoot")
         outDir.get().asFile.deleteRecursively(); outDir.get().asFile.mkdirs()
-        val qualifyJar = project(":qualify").layout.buildDirectory.file("libs/qualify.jar").get().asFile
-        check(qualifyJar.isFile) { "qualify jar missing: $qualifyJar" }
+        val moduleJars = bundledModules.map { m ->
+            project(m).layout.buildDirectory.file("libs/${m.removePrefix(":")}.jar").get().asFile
+                .also { check(it.isFile) { "module jar missing: $it" } }
+        }
         val stdlib = configurations.compileClasspath.get().files.firstOrNull { it.name.startsWith("kotlin-stdlib") }
         commandLine(
             listOfNotNull(
                 File(bt, "d8").path, "--release", "--min-api", "26", "--lib", androidJar,
                 "--classpath", project(":host-api").layout.buildDirectory.file("libs/host-api.jar").get().asFile.path,
                 stdlib?.let { "--classpath" }, stdlib?.path,
-                "--output", outDir.get().asFile.path, jarFile.get().asFile.path, qualifyJar.path,
-            ),
+                "--output", outDir.get().asFile.path, jarFile.get().asFile.path,
+            ) + moduleJars.map { it.path },
         )
     }
-    dependsOn(":host-api:jar", ":qualify:jar")
+    dependsOn(":host-api:jar")
+    for (m in bundledModules) dependsOn("$m:jar")
 }
 
 tasks.register<JavaExec>("packBundle") {
