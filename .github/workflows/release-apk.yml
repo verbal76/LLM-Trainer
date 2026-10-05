@@ -11,10 +11,10 @@ on:
         description: "Mark as pre-release"
         type: boolean
         default: true
-  # Owner-authorized alternative trigger: pushing tag `release-v<N>` runs the same gated path
+  # Owner-authorized alternative trigger: pushing branch `release/v<N>` runs the same gated path
   # (the workflow publishes the real release tag `v<N>` itself, only after every gate passes).
   push:
-    tags: ["release-v*"]
+    branches: ["release/v*"]
 
 permissions:
   contents: write
@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Resolve version
         run: |
-          if [ -n "${{ inputs.version }}" ]; then V="${{ inputs.version }}"; else V="${GITHUB_REF_NAME#release-v}"; fi
+          if [ -n "${{ inputs.version }}" ]; then V="${{ inputs.version }}"; else V="${GITHUB_REF_NAME#release/v}"; fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
       - name: Validate inputs and secrets
         env:
