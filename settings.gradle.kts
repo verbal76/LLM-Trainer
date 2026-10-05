@@ -23,6 +23,8 @@ rootProject.name = "LLM-Trainer"
 
 // Pure-JVM, independently testable OTA/update core: always included.
 include(":ota-core")
+// Pure-JVM device-qualification core (Kotlin port of factory/llmtrainer/device.py); dexed into the OTA bundle.
+include(":qualify")
 
 // Android modules need an Android SDK. CI always has one; a bare dev box may not.
 val sdkDir: String? = System.getenv("ANDROID_HOME")

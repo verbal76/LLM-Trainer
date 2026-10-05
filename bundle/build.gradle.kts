@@ -19,6 +19,8 @@ val sdkRoot = rootProject.extra["androidSdkRoot"] as String
 
 dependencies {
     compileOnly(project(":host-api"))
+    // Dependency-free (kotlin-stdlib only) qualifier; its classes are dexed INTO the bundle (see dexBundle).
+    compileOnly(project(":qualify"))
     compileOnly(files(androidJar))
 }
 
@@ -69,17 +71,19 @@ val dexBundle = tasks.register<Exec>("dexBundle") {
         val bt = File(sdkRoot, "build-tools").listFiles()!!.filter { File(it, "d8").exists() }.maxByOrNull { it.name }
             ?: error("no Android build-tools with d8 found under $sdkRoot")
         outDir.get().asFile.deleteRecursively(); outDir.get().asFile.mkdirs()
+        val qualifyJar = project(":qualify").layout.buildDirectory.file("libs/qualify.jar").get().asFile
+        check(qualifyJar.isFile) { "qualify jar missing: $qualifyJar" }
         val stdlib = configurations.compileClasspath.get().files.firstOrNull { it.name.startsWith("kotlin-stdlib") }
         commandLine(
             listOfNotNull(
                 File(bt, "d8").path, "--release", "--min-api", "26", "--lib", androidJar,
                 "--classpath", project(":host-api").layout.buildDirectory.file("libs/host-api.jar").get().asFile.path,
                 stdlib?.let { "--classpath" }, stdlib?.path,
-                "--output", outDir.get().asFile.path, jarFile.get().asFile.path,
+                "--output", outDir.get().asFile.path, jarFile.get().asFile.path, qualifyJar.path,
             ),
         )
     }
-    dependsOn(":host-api:jar")
+    dependsOn(":host-api:jar", ":qualify:jar")
 }
 
 tasks.register<JavaExec>("packBundle") {

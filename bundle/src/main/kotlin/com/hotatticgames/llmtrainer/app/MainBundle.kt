@@ -14,6 +14,12 @@ import com.hotatticgames.llmtrainer.hostapi.BundleApp
 import com.hotatticgames.llmtrainer.hostapi.BundleEntry
 import com.hotatticgames.llmtrainer.hostapi.Capabilities
 import com.hotatticgames.llmtrainer.hostapi.HostServices
+import com.hotatticgames.llmtrainer.qualify.DeviceSnapshot
+import com.hotatticgames.llmtrainer.qualify.Explain
+import com.hotatticgames.llmtrainer.qualify.ProfilePick
+import com.hotatticgames.llmtrainer.qualify.QualificationResult
+import com.hotatticgames.llmtrainer.qualify.ReferenceCatalog
+import com.hotatticgames.llmtrainer.qualify.Tier
 import org.json.JSONObject
 
 /**
@@ -88,6 +94,9 @@ private class MainApp(private val host: HostServices) : BundleApp {
         // Device
         col.addView(cardView("THIS DEVICE", label(deviceSummary(), 14f, text)))
 
+        // Model recommendations (qualification only; see recommendationsBody)
+        col.addView(cardView("MODEL RECOMMENDATIONS", recommendationsBody(context, dp)))
+
         // Projects placeholder (honest about what exists)
         col.addView(
             cardView(
@@ -131,6 +140,68 @@ private class MainApp(private val host: HostServices) : BundleApp {
             "Thermal status ${d.optString("thermalStatus", "n/a")}"
     } catch (e: Exception) {
         "Device info unavailable: ${e.message}"
+    }
+
+    /**
+     * Runs the on-device qualifier (the :qualify module, dexed into this bundle) on the live device snapshot.
+     * Platform Views only. Honest by construction: no inference runtime ships in this APK, and every figure
+     * here is a conservative estimate, so no profile can be labelled "Recommended" until it is benchmarked.
+     */
+    private fun recommendationsBody(context: Context, dp: Float): View {
+        val box = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        fun line(s: String, size: Float, color: Int, bold: Boolean = false, topDp: Int = 0): TextView {
+            val t = TextView(context)
+            t.text = s; t.textSize = size; t.setTextColor(color)
+            if (bold) t.setTypeface(t.typeface, Typeface.BOLD)
+            box.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = (topDp * dp).toInt() })
+            return t
+        }
+        line(
+            "No on-device inference runtime ships in this app yet (native ABI ${host.nativeAbi}, runtime " +
+                "'${host.nativeRuntimeId}'). This is a qualification view of what this phone could sustain, not a running model.",
+            12f, muted,
+        )
+        fun addPick(result: QualificationResult, pick: ProfilePick) {
+            line(pick.label, 14f, text, true, 14)
+            val c = pick.config
+            if (c == null || pick.tier == Tier.NONE) {
+                line("No safe configuration", 13f, accent, true, 2)
+                line(pick.reason, 12f, muted, false, 2)
+                return
+            }
+            val status = if (pick.recommended) "Recommended (measured on this device)" else "Unverified estimate"
+            line(status, 12f, accent, true, 2)
+            line(
+                "${c.model.modelId} · ${c.quant.name} · ${c.contextTokens} token context · retrieval ${c.retrieval.indexRamMb.toInt()} MB",
+                13f, text, false, 2,
+            )
+            line(pick.reason, 12f, muted, false, 2)
+            val a = result.assessed.firstOrNull { it.config.configId == c.configId }
+            if (a != null) line(Explain.pickLines(a).joinToString("\n"), 11f, muted, false, 2)
+            val ex = Explain.exclusionLines(result.assessed, pick, result.policy)
+            if (ex.isNotEmpty()) line("Larger models not chosen:\n" + ex.joinToString("\n"), 11f, muted, false, 2)
+            for (w in pick.warnings) line(w, 11f, accent, false, 2)
+
+        }
+        val result: QualificationResult = try {
+            DeviceSnapshot.qualify(host.deviceSnapshotJson(), ReferenceCatalog.load().candidates())
+        } catch (e: Throwable) {
+            line("Qualification unavailable: ${e.message}", 14f, text, false, 8)
+            return box
+        }
+        val profile = result.profile
+        if (profile != null) {
+            line("RAM budget for a model on this device", 12f, accent, true, 10)
+            line(Explain.budgetLines(profile, result.policy).joinToString("\n"), 12f, text)
+        }
+        if (result.notes.isNotEmpty()) line("Signals: " + result.notes.joinToString(", "), 12f, muted, false, 4)
+        for (pick in result.picks) addPick(result, pick)
+        line(
+            "Sizes are generic classes (not specific models) with conservative estimates. A profile is only " +
+                "'Recommended' after a sustained on-device benchmark; until then it is shown as an unverified estimate.",
+            11f, muted, false, 12,
+        )
+        return box
     }
 
     private fun runCheck() {
