@@ -122,3 +122,34 @@ fixture for 2 epochs of 286 K characters (4500 steps at ctx 128, 3 threads) took
   * **LoRA on a Q4/Q8 base: memory allows 3B (~2 GB weights) comfortably and 7B (~4 GB + ~2.6 GB activations at ctx 128) barely**;
   * **time is the binding limit, not memory**. Measured LoRA-on-Q4_0 at ctx 128: ~2.7 s/step for the 135M shape (backward must traverse every layer through quantized weights), i.e. roughly 20 ms per million parameters per step: ~20 s/step at 1B and ~2.5 min/step at 7B on this VM, x2-5 on a phone. Last-layers tuning is much cheaper per step (135M: 0.18 s at ctx 64). Useful specialization (hundreds of steps) is realistic for <= ~0.5B models in minutes-to-an-hour, 1-1.5B takes hours (overnight on charge), and is **not practical for >= 3B** even though the memory fits.
 * Sustained thermal throttling, battery drain and background kills are not measured at all; run the qualifier before claiming a profile fits.
+
+## Real-model proof: what the specialist does and does NOT do (CI run on SmolLM2-135M F16)
+First real run (last 4 layers, full weights, 20 epochs, lr 3e-4, 12 invented facts, single held-out set):
+training loss 3.43 -> 0.43, trained-fact recall 0/8 -> 5/8, **held-out facts NLL 2.55 -> 3.23 (worse)**, unrelated prose NLL
+3.32 -> 3.76 (+0.44); 80 steps in 72 s (4 threads), peak RSS 558 MB vs estimate 702 MB. Reading: the engine mechanics are
+real (reload, bit-identical SIGKILL resume, independent consumer), but that setting **memorised** its facts and was worse on unseen
+ones, while forgetting general text. Note also what the unseen-fact NLL measures: facts here are random invented values, so the
+only thing that *can* generalise is the domain format (entity/attribute phrasing, units, value ranges) - never the values themselves.
+Exact values must come from the retrievable reference package, not from weights.
+
+The gate was redesigned so that the proof is honest (no threshold was loosened; `+0.05 nats` on the test set is the same bar):
+* Three disjoint sets from `make_fact_corpus.py`: **train**, **validation** (choose settings), **test** (judge). Every entity belongs
+  to exactly one split, so no trained fact and no re-phrasing of one is in validation/test (asserted at generation time and
+  re-checked in every cell; the corpus uses a single phrasing per attribute).
+* `engine.yml` job `real-grid` runs 15 cells on SmolLM2-135M F16 in *measure mode* (a cell fails only on engine-mechanics gates):
+  LoRA r8/r16 x lr 5e-4 x 3/5/10 epochs, LoRA r8 at lr 1e-4, last-4-layers full-weight at lr 3e-5 and 1e-4 x 3/5/10 epochs, and 192
+  facts with 6 facts per document. The engine has per-epoch validation tracking (`val_fraction`, recorded in the patch and printed
+  per cell) but no automatic early stopping: the epochs axis of the grid *is* the early-stopping search, scored on the external
+  validation set.
+* `real-model-summary` prints one table (every cell, including bad ones: val NLL, prose NLL + delta, trained-fact recall, 10 general
+  probes before/after, steps, seconds), selects the best cell **on validation only** (preferring <= 0.5 nats prose forgetting, a
+  soft preference), then applies the **test gate** (>= 0.05 nats lower test NLL than the base) to that one cell. Test NLL is scored in
+  every cell but sealed in its JSON and only printed for the selected setting. If no cell improves validation NLL the job fails
+  and states that the specialist memorises but does not generalise.
+* Retention (prose NLL on pinned llama.cpp docs; 10 general-knowledge completion probes) is reported for every cell and never gates.
+
+Status of the numbers: the grid itself has **not** been run on SmolLM2 yet (CI only; this sandbox has no access to huggingface.co).
+Locally the harness was exercised end to end on the 2.5M-param stand-in model (mechanics, selection and gate logic work; numbers
+are not comparable). The default in `real_model_check.py` (LoRA r8, lr 5e-4, 5 epochs) is an a-priori choice and must be replaced
+by the validation-selected cell from the first grid run; until then no claim of "better on unseen material" is made for a real
+model beyond what the first run showed (it was worse).

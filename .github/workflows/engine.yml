@@ -8,9 +8,6 @@ on:
     branches: ['engine/**', 'ccr-*']
   workflow_dispatch:
     inputs:
-      real_epochs:
-        description: 'epochs for the real-model specialization run'
-        default: '20'
       pretrain_epochs:
         description: 'epochs for the tiny pre-trained fixture used by the unit/integration suite'
         default: '2'
@@ -99,76 +96,144 @@ jobs:
           path: build/engine/hag_cli
           retention-days: 3
 
-  real-model:
-    name: real model - ${{ matrix.label }}
+  # ---- real pre-trained model: grid of specialization settings, every cell in MEASURE mode ------------------------------
+  # A cell fails only on engine-mechanics gates. Quality is judged once, in `real-model-summary`: the setting is chosen on the
+  # VALIDATION set only and the TEST gate (unseen entities) is applied to the selected setting. Retention (prose NLL, general
+  # probes) is printed for every cell.
+  real-grid:
+    name: grid ${{ matrix.label }}
     needs: build-and-test
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          # real pre-trained instruct model (llama architecture, tied embeddings), F16 weights: full train-on-device path
-          - label: smollm2-135m-f16
-            repo: bartowski/SmolLM2-135M-Instruct-GGUF
-            glob: '*[Ff]16*.gguf'
-            layers: '4'
-            chat: '--chat'
-            resume: '--resume-check'
-          # real tiny story model, quantized base: exercises F32 working copy + write-back into the base tensor type
-          - label: stories15m-quantized
-            repo: ggml-org/models
-            glob: 'tinyllamas/stories15M-q*.gguf'
-            layers: '3'
-            chat: ''
-            resume: ''
+          # LoRA (base frozen) rank 8 / 16, all layers, lr 5e-4, epochs 3/5/10
+          - {label: smollm2-lora8-lr5e-4-e3,   mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 3}
+          - {label: smollm2-lora8-lr5e-4-e5,   mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 5}
+          - {label: smollm2-lora8-lr5e-4-e10,  mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 10}
+          - {label: smollm2-lora16-lr5e-4-e3,  mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 3}
+          - {label: smollm2-lora16-lr5e-4-e5,  mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 5}
+          - {label: smollm2-lora16-lr5e-4-e10, mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 10}
+          # LoRA, lower lr
+          - {label: smollm2-lora8-lr1e-4-e5,   mode: lora, rank: 8,  layers: 0, lr: '1e-4', epochs: 5}
+          - {label: smollm2-lora8-lr1e-4-e10,  mode: lora, rank: 8,  layers: 0, lr: '1e-4', epochs: 10}
+          # last-N layers, full weights, much lower lr than the failed 3e-4 x 20 epochs; resume/SIGKILL proof on one cell
+          - {label: smollm2-last4-lr3e-5-e3,   mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 3}
+          - {label: smollm2-last4-lr3e-5-e5,   mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 5,  resume: '--resume-check'}
+          - {label: smollm2-last4-lr3e-5-e10,  mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 10}
+          - {label: smollm2-last4-lr1e-4-e3,   mode: full, rank: 0,  layers: 4, lr: '1e-4', epochs: 3}
+          - {label: smollm2-last4-lr1e-4-e5,   mode: full, rank: 0,  layers: 4, lr: '1e-4', epochs: 5}
+          # more training facts / more facts per document at the middle LoRA setting
+          - {label: smollm2-lora8-lr5e-4-e5-n192-d6, mode: lora, rank: 8, layers: 0, lr: '5e-4', epochs: 5, ntrain: 192, docfacts: 6}
+          - {label: smollm2-last4-lr3e-5-e5-n192-d6, mode: full, rank: 0, layers: 4, lr: '3e-5', epochs: 5, ntrain: 192, docfacts: 6}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Python dependencies
         run: python -m pip install --disable-pip-version-check gguf numpy
-
       - uses: actions/download-artifact@v4
         with:
           name: hag_cli-linux-x86_64
           path: bin
-
-      - name: Prose for the degradation measurement (pinned llama.cpp docs)
+      - name: Prose for the retention measurement (pinned llama.cpp docs)
         uses: actions/cache@v4
         with:
           path: native/.deps
           key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
-
       - run: native/fetch-llama.sh && chmod +x bin/hag_cli
-
       - name: Download model from huggingface.co and verify sha256 against the HF API (fails on mismatch)
         run: |
+          set -eo pipefail
           mkdir -p models out
-          python native/engine/tools/fetch_hf_model.py "${{ matrix.repo }}" --glob '${{ matrix.glob }}' --out models --lock out/models.lock.json
+          python native/engine/tools/fetch_hf_model.py "bartowski/SmolLM2-135M-Instruct-GGUF" --glob '*[Ff]16*.gguf' --out models --lock out/models.lock.json
           ls -la models
           echo "MODEL=$(ls models/*.gguf | head -n1)" >> "$GITHUB_ENV"
-
-      - name: Real inference, short real training, reload, evaluation (and SIGKILL/resume where enabled)
+      - name: Cell - real inference, real training, reload, validation/test/retention evaluation
         run: |
+          set -eo pipefail
           python native/engine/tests/real_model_check.py --cli bin/hag_cli --model "$MODEL" --label "${{ matrix.label }}" --out out \
-            --prose-dir native/.deps/llama.cpp/docs --layers ${{ matrix.layers }} --epochs ${{ github.event.inputs.real_epochs || '20' }} \
-            --threads "$HAG_THREADS" ${{ matrix.chat }} ${{ matrix.resume }} 2>&1 | tee out/real_${{ matrix.label }}.log
-
-      - name: Upload measurements, lock record and logs
+            --prose-dir native/.deps/llama.cpp/docs --mode ${{ matrix.mode }} --lora-rank ${{ matrix.rank }} --layers ${{ matrix.layers }} \
+            --lr ${{ matrix.lr }} --epochs ${{ matrix.epochs }} --n-train ${{ matrix.ntrain || 96 }} --doc-facts ${{ matrix.docfacts || 3 }} \
+            --threads "$HAG_THREADS" --chat ${{ matrix.resume }} 2>&1 | tee out/cell_${{ matrix.label }}.log
+      - name: Upload cell result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: real-model-${{ matrix.label }}
           path: |
-            out/*.json
-            out/*.log
+            out/cell_*.json
+            out/cell_*.log
+            out/models.lock.json
             out/work_*/train_run.log
-            out/work_*/requant_eval.json
           if-no-files-found: warn
+
+  real-model-summary:
+    name: grid summary + validation-selected test gate
+    needs: real-grid
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: real-model-smollm2-*
+          path: cells
+          merge-multiple: true
+      - name: One table for the whole grid, selection on validation, test gate on the selected setting
+        run: |
+          set -eo pipefail
+          ls cells | head -50
+          python native/engine/tools/summarize_grid.py cells --prefix smollm2 2>&1 | tee grid_summary.txt
+          { echo '```'; cat grid_summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grid-summary
+          path: grid_summary.txt
+
+  real-model-quantized:
+    name: real model - stories15m (quantized base, mechanics only)
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check gguf numpy
+      - uses: actions/download-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: bin
+      - uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+      - run: native/fetch-llama.sh && chmod +x bin/hag_cli
+      - name: Download (sha256-verified)
+        run: |
+          set -eo pipefail
+          mkdir -p models out
+          python native/engine/tools/fetch_hf_model.py "ggml-org/models" --glob 'tinyllamas/stories15M-q*.gguf' --out models --lock out/models.lock.json
+          echo "MODEL=$(ls models/*.gguf | head -n1)" >> "$GITHUB_ENV"
+      - name: Quantized-base cell (F32 working copy + write-back into the base type); quality is informational here
+        run: |
+          set -eo pipefail
+          python native/engine/tests/real_model_check.py --cli bin/hag_cli --model "$MODEL" --label stories15m-q-last3 --out out \
+            --prose-dir native/.deps/llama.cpp/docs --mode full --layers 3 --lr 1e-4 --epochs 5 --threads "$HAG_THREADS" 2>&1 | tee out/cell_stories.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-model-stories15m
+          path: |
+            out/cell_*.json
+            out/cell_*.log
+            out/models.lock.json
 
   android-cross-compile:
     name: android NDK compile check (${{ matrix.abi }})
