@@ -30,6 +30,8 @@ class HostActivity : Activity() {
         private const val FADE_MS = 250L
         private const val LOGO_ASSET = "branding/studio-logo.png"
         private var handlerInstalled = false
+        /** Process-wide: the studio splash is a COLD-launch affair only (not config recreates / task resumes). */
+        private var splashConsumed = false
     }
 
     private lateinit var container: FrameLayout
@@ -37,6 +39,8 @@ class HostActivity : Activity() {
     private lateinit var runtime: HostRuntime
     private var shownAtMs = 0L
     private var app: BundleApp? = null
+    private var splashActive = false
+    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +55,11 @@ class HostActivity : Activity() {
             setPadding(dp(24), dp(24), dp(24), dp(24))
             assets.open(LOGO_ASSET).use { setImageBitmap(BitmapFactory.decodeStream(it)) }
         }
-        container.addView(splash, FrameLayout.LayoutParams(-1, -1))
+        // Opaque backdrop: the product UI underneath must never show through the (alpha) logo.
+        splash.setBackgroundColor(Color.parseColor("#0E0E12"))
+        splashActive = !splashConsumed && savedInstanceState == null
+        splashConsumed = true
+        if (splashActive) container.addView(splash, FrameLayout.LayoutParams(-1, -1))
         setContentView(container)
         shownAtMs = SystemClock.elapsedRealtime()
         startBoot()
@@ -74,7 +82,7 @@ class HostActivity : Activity() {
             val r = runtime.boot { bundleApp -> onMainBlocking { bundleApp.createContentView(this) } }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (r == null) showSafeMode() else showBundle(r.app, r.view)
+                if (r == null) showSafeMode() else showBundle(r.app, r.view!!)
             }
         }
     }
@@ -94,19 +102,26 @@ class HostActivity : Activity() {
             override fun onPreDraw(): Boolean {
                 view.viewTreeObserver.removeOnPreDrawListener(this)
                 // First frame of the bundle is about to draw: it has proven it can render.
-                view.post {
-                    runtime.onFirstFrame()
-                    val wait = (MIN_SPLASH_MS - (SystemClock.elapsedRealtime() - shownAtMs)).coerceAtLeast(0)
-                    splash.postDelayed({ fadeSplash() }, wait)
-                }
+                view.post { runtime.onFirstFrame() }
                 return true
             }
         })
+        // Splash removal is timer-driven (never dependent on a draw callback) so it cannot get stuck.
+        val wait = (MIN_SPLASH_MS - (SystemClock.elapsedRealtime() - shownAtMs)).coerceAtLeast(0)
+        ui.postDelayed({ fadeSplash() }, wait)
         bundleApp.onResume()
     }
 
     private fun fadeSplash() {
-        splash.animate().alpha(0f).setDuration(FADE_MS).withEndAction { container.removeView(splash) }.start()
+        if (!splashActive) return
+        splashActive = false
+        splash.animate().alpha(0f).setDuration(FADE_MS).withEndAction { removeSplashNow() }.start()
+        ui.postDelayed({ removeSplashNow() }, FADE_MS + 400) // animation scale 0 / interrupted animators
+    }
+
+    private fun removeSplashNow() {
+        splash.visibility = View.GONE
+        (splash.parent as? FrameLayout)?.removeView(splash)
     }
 
     /** Last resort: even the built-in bundle failed. Never a blank screen; always diagnosable. */

@@ -89,4 +89,22 @@ class UpdateCoordinatorTest {
         val json = Diagnostics.toJson(Diagnostics.build(TestKit.host(), store.load(), "ota", 2, "1.0.2", slot.id))
         assertTrue(json.contains(slot.id) && json.contains("nativeAbi"))
     }
+
+    @Test fun missingChannelIs404IsACleanUpToDateNotAFailure() {
+        val f404 = object : Fetcher {
+            override fun getBytes(url: String, maxBytes: Long): ByteArray = throw HttpStatusException(404, "HTTP 404")
+            override fun download(url: String, dest: java.io.File, maxBytes: Long) = throw HttpStatusException(404, "HTTP 404")
+        }
+        val store = UpdateStore(TestKit.tmp())
+        assertIs<CheckResult.UpToDate>(run(f404, store = store))
+        assertTrue(store.load().history.any { it.event == "CHECK_NO_CHANNEL" })
+    }
+
+    @Test fun serverErrorsAreStillFailures() {
+        val f500 = object : Fetcher {
+            override fun getBytes(url: String, maxBytes: Long): ByteArray = throw HttpStatusException(500, "HTTP 500")
+            override fun download(url: String, dest: java.io.File, maxBytes: Long) = throw HttpStatusException(500, "HTTP 500")
+        }
+        assertIs<CheckResult.Failed>(run(f500))
+    }
 }

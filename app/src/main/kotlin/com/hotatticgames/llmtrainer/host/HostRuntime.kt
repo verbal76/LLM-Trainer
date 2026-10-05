@@ -38,7 +38,7 @@ class Running(
     val slotId: String?,
     val entryClass: String,
     val app: BundleApp,
-    val view: View,
+    var view: View?,
 )
 
 /**
@@ -132,9 +132,13 @@ class HostRuntime(
             val entry = loader.loadClass(entryClass).getDeclaredConstructor().newInstance() as BundleEntry
             val app = entry.create(services)
             app.selfTest()?.let { throw IllegalStateException("selfTest failed: $it") }
-            val view = makeView(app)
-            Running(source, version, name, slotId, entryClass, app, view)
+            // Publish identity BEFORE the UI is built so diagnosticsJson() is truthful inside createContentView.
+            val r = Running(source, version, name, slotId, entryClass, app, null)
+            running = r
+            r.view = makeView(app)
+            r
         } catch (t: Throwable) {
+            running = null
             Log.e(TAG, "bundle $source v$version failed to start", t)
             if (slotId != null) store.reportFailure(slotId, "${t.javaClass.simpleName}: ${t.message}")
             else store.record("BUILTIN_FAILED", "${t.javaClass.simpleName}: ${t.message}")

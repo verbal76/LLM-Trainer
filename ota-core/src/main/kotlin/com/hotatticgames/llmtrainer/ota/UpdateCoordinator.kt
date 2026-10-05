@@ -3,6 +3,9 @@ package com.hotatticgames.llmtrainer.ota
 import java.io.File
 import java.io.IOException
 
+/** Thrown by a [Fetcher] for non-2xx responses so callers can distinguish "not found" from real failures. */
+class HttpStatusException(val status: Int, message: String) : IOException(message)
+
 /** Network seam. The Android host implements it with HttpURLConnection; tests use a fake. */
 interface Fetcher {
     @Throws(IOException::class)
@@ -43,6 +46,15 @@ class UpdateCoordinator(
         val index = try {
             val raw = fetcher.getBytes(indexUrl, MAX_INDEX_BYTES).toString(Charsets.UTF_8)
             OtaJson.decodeFromString(ChannelIndex.serializer(), raw)
+        } catch (e: HttpStatusException) {
+            if (e.status == 404) {
+                // Channel not published yet: nothing newer exists. A clean "up to date", not a failure.
+                val floor = store.highestKnownVersion(host.builtinBundleVersion)
+                store.record("CHECK_NO_CHANNEL", "index 404")
+                return CheckResult.UpToDate(floor)
+            }
+            store.record("CHECK_FAILED", "index: ${e.message}")
+            return CheckResult.Failed(listOf(Reject(RejectCode.INDEX_INVALID, e.message ?: "fetch failed")))
         } catch (e: Exception) {
             store.record("CHECK_FAILED", "index: ${e.message}")
             return CheckResult.Failed(listOf(Reject(RejectCode.INDEX_INVALID, e.message ?: "fetch/parse failed")))

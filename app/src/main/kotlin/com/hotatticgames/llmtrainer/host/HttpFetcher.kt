@@ -1,6 +1,7 @@
 package com.hotatticgames.llmtrainer.host
 
 import com.hotatticgames.llmtrainer.ota.Fetcher
+import com.hotatticgames.llmtrainer.ota.HttpStatusException
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -16,7 +17,7 @@ class HttpFetcher : Fetcher {
         c.instanceFollowRedirects = true
         c.setRequestProperty("User-Agent", "LLM-Trainer-OTA/1")
         c.setRequestProperty("Cache-Control", "no-cache")
-        if (c.responseCode !in 200..299) throw IOException("HTTP ${c.responseCode} for $url")
+        if (c.responseCode !in 200..299) throw HttpStatusException(c.responseCode, "HTTP ${c.responseCode} for $url")
         return c
     }
 
