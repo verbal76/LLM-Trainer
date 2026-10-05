@@ -72,13 +72,13 @@ internal fun extOf(fileName: String): String {
  */
 object Extractors {
     private val all: List<Extractor> = listOf(
-        DocxExtractor(), MarkdownExtractor(), PlainTextExtractor(),DelimitedExtractor(), JsonExtractor(),
+        PdfExtractor(), DocxExtractor(),MarkdownExtractor(), PlainTextExtractor(),DelimitedExtractor(), JsonExtractor(),
     )
 
     fun forFile(fileName: String, mime: String?): Extractor? = all.firstOrNull { it.supports(fileName, mime) }
 
     fun extract(fileName: String, mime: String?, bytes: ByteArray): Extracted {
-        val ex: Extractor? = forFile(fileName, mime)
+        val ex: Extractor? = if (looksLikePdf(bytes)) all.first { it is PdfExtractor } else forFile(fileName, mime)
         if (ex == null) {
             return extractedOf("none", "0", listOf(IngestIssue("unsupported_format", fileName,
                 "unsupported file type (supported: .txt .md .docx .pdf .csv .tsv .json .jsonl)")))
@@ -95,9 +95,7 @@ object Extractors {
     }
 
     private fun looksLikePdf(b: ByteArray): Boolean {
-        val lim = minOf(b.size, 1024)
-        for (i in 0..lim - 5) if (b[i] == '%'.code.toByte() && b[i + 1] == 'P'.code.toByte() && b[i + 2] == 'D'.code.toByte() &&
-            b[i + 3] == 'F'.code.toByte() && b[i + 4] == '-'.code.toByte()) return true
-        return false
+        return b.size >= 5 && b[0] == '%'.code.toByte() && b[1] == 'P'.code.toByte() && b[2] == 'D'.code.toByte() &&
+            b[3] == 'F'.code.toByte() && b[4] == '-'.code.toByte()
     }
 }
