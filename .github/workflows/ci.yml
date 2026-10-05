@@ -26,7 +26,7 @@ jobs:
       - name: Factory tests
         working-directory: factory
         run: |
-          pip install -e ".[dev]" || pip install -e . pytest
+          pip install -e ".[test]"
           python -m pytest -q
       - name: Schemas are in sync with code
         working-directory: factory
