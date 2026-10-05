@@ -509,7 +509,7 @@ def test_quantized_bases_run_and_train(quant_bases, pretrained, corpus, prose_he
     # whole-model training needs an F32 working copy of the trainable tensors; the patch is stored back in Q8_0
     est = cli("estimate", q8, "--ctx", 64, "--last-layers", 2)[1]
     assert est["base_quantized"] and est["working_copy_needed"]
-    rc, js, work, out = train(q8, corpus, "q8_last2", "--last-layers", 2, "--epochs", 30)
+    rc, js, work, out = train(q8, corpus, "q8_last2", "--last-layers", 2, "--epochs", 60, "--val", 0.2)
     info = cli("patch-info", out)[1]
     assert {t["type"] for t in info["tensors"]} <= {"q8_0", "f32"} and any(t["type"] == "q8_0" for t in info["tensors"])
     assert os.path.getsize(out) < 0.5 * os.path.getsize(q8) + 4096
