@@ -50,7 +50,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests
-        run: ./gradlew --no-daemon :ota-core:test
+        run: ./gradlew --no-daemon :ota-core:test :qualify:test
 
       - name: Restore signing material
         env:
