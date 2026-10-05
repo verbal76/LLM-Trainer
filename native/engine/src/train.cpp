@@ -55,7 +55,7 @@ size_t convert_rows_from_f32(ggml_type t, const float * src, void * dst, int64_t
 
 namespace {
 
-constexpr uint32_t kAlgoVersion = 1;  // bump when training maths / data packing / checkpoint semantics change
+constexpr uint32_t kAlgoVersion = 2;  // bump when training maths / data packing / checkpoint semantics change
 
 // ---- parameters ----------------------------------------------------------------------------------------------------
 struct Cfg {
@@ -328,7 +328,8 @@ static std::string read_hparams(const char * path, const BaseInfo & b, HParams &
 
 // ---- dataset ---------------------------------------------------------------------------------------------------------
 struct Dataset {
-    std::vector<int32_t> train, val;     // token streams
+    std::vector<int32_t> train, val;     // token streams (train: canonical document order; each epoch re-packs shuffled documents)
+    std::vector<std::vector<int32_t>> train_docs;
     std::vector<int64_t> train_win, val_win;  // window start offsets (each window = n_ctx inputs + 1 label)
     int       n_ctx = 0;
     int       n_train_docs = 0, n_val_docs = 0;
@@ -382,6 +383,7 @@ static std::string build_dataset(const llama_vocab * vocab, const char * const *
     for (int i = 0; i < n_texts; i++) {
         auto & dst = is_val[i] ? d.val : d.train;
         dst.insert(dst.end(), docs[i].begin(), docs[i].end());
+        if (!is_val[i]) d.train_docs.push_back(docs[i]);
         (is_val[i] ? d.n_val_docs : d.n_train_docs)++;
     }
     if (d.train.size() < 9) return "training texts are too short (fewer than 9 tokens after tokenization)";
@@ -1192,8 +1194,18 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     uint64_t last_saved_step = rs.restore ? step : UINT64_MAX;
     bool done_all = (start_epoch >= (uint64_t)c.epochs);
     std::vector<uint32_t> perm(S);
+    std::vector<int32_t> epoch_stream;
     for (uint64_t epoch = start_epoch; epoch < (uint64_t)c.epochs && !done_all; epoch++) {
         for (size_t i = 0; i < S; i++) perm[i] = (uint32_t)i;
+        // re-pack: documents in a seeded per-epoch order, so a fact is seen in different contexts every epoch
+        epoch_stream.clear();
+        {
+            std::vector<size_t> dord(ds.train_docs.size());
+            for (size_t i = 0; i < dord.size(); i++) dord[i] = i;
+            SplitMix64 dr(((uint64_t)c.seed * 0xA24BAED4963EE407ull) ^ (epoch + 7) * 0x9FB21C651E98DF25ull);
+            for (size_t i = dord.size(); i > 1; i--) std::swap(dord[i - 1], dord[(size_t)dr.below((uint64_t)i)]);
+            for (size_t i : dord) epoch_stream.insert(epoch_stream.end(), ds.train_docs[i].begin(), ds.train_docs[i].end());
+        }
         {
             SplitMix64 rng(((uint64_t)c.seed * 0x9E3779B97F4A7C15ull) ^ (epoch + 1) * 0xD6E8FEB86659FD93ull);
             for (size_t i = S - 1; i > 0; i--) std::swap(perm[i], perm[(size_t)rng.below((uint64_t)i + 1)]);
@@ -1202,7 +1214,7 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
             ggml_opt_zero_grad_accs(opt);
             ggml_opt_result_reset(res_train);
             for (int a = 0; a < accum; a++) {
-                load_window(ds.train, ds.train_win[perm[k * accum + a]]);
+                load_window(epoch_stream, ds.train_win[perm[k * accum + a]]);
                 int rc = llama_opt_sequence(L.ctx, tok.data(), lab.data(), true, res_train);
                 if (rc != 0) return fail_step(rc);
                 if (a + 1 < accum && now_ms() - X.hk.last_event_ms > 700) {
