@@ -1,0 +1,348 @@
+--- a/ggml/include/ggml-opt.h	2022-11-09 12:37:21.000000000 +0000
++++ b/ggml/include/ggml-opt.h	2026-10-05 12:56:51.221263858 +0000
+@@ -157,6 +157,19 @@
+ 
+     GGML_API enum ggml_opt_optimizer_type ggml_opt_context_optimizer_type(ggml_opt_context_t); //TODO consistent naming scheme
+ 
++    // ---- HAG patch: optimizer-state access for exact checkpoint/resume (native/patches/0001-hag-training-hooks.patch) ----
++    GGML_API int64_t ggml_opt_get_iter(ggml_opt_context_t opt_ctx);                 // Adam bias-correction step counter
++    GGML_API void    ggml_opt_set_iter(ggml_opt_context_t opt_ctx, int64_t iter);
++    // number of optimizer-state slots (one per graph node of the first built graph); 0 until the first graph has been built
++    GGML_API int     ggml_opt_n_state(ggml_opt_context_t opt_ctx);
++    // AdamW first/second moment tensors of slot i (named "AdamW m for <param>" / "AdamW v for <param>"); false if the slot is empty
++    GGML_API bool    ggml_opt_state_at(ggml_opt_context_t opt_ctx, int i, struct ggml_tensor ** m, struct ggml_tensor ** v);
++    // called once, right after the optimizer state has been allocated and zeroed (use it to restore a checkpoint)
++    typedef void (*ggml_opt_state_init_fn)(ggml_opt_context_t opt_ctx, void * userdata);
++    GGML_API void    ggml_opt_set_state_init_cb(ggml_opt_context_t opt_ctx, ggml_opt_state_init_fn cb, void * userdata);
++    // zero the gradient accumulators (keeps the scalar loss seed at 1). Call at the start of every accumulation window.
++    GGML_API void    ggml_opt_zero_grad_accs(ggml_opt_context_t opt_ctx);
++
+     GGML_API const char * ggml_opt_optimizer_name(enum ggml_opt_optimizer_type);
+ 
+     // ====== Optimization Result ======
+--- a/ggml/src/ggml-opt.cpp	2022-11-09 12:37:21.000000000 +0000
++++ b/ggml/src/ggml-opt.cpp	2026-10-05 13:04:53.433320763 +0000
+@@ -69,6 +69,9 @@
+     struct ggml_tensor *          opt_step_params = nullptr; // Stores output of get_opt_pars.
+ 
+     enum ggml_opt_optimizer_type optimizer = GGML_OPT_OPTIMIZER_TYPE_ADAMW;
++
++    ggml_opt_state_init_fn state_init_cb = nullptr; // HAG patch
++    void *                 state_init_ud = nullptr;
+ };
+ 
+ struct ggml_opt_result {
+@@ -541,6 +544,9 @@
+         opt_ctx->buf_static = ggml_backend_alloc_ctx_tensors(
+             opt_ctx->ctx_static, ggml_backend_sched_get_backend(opt_ctx->backend_sched, 0));
+         ggml_graph_reset(opt_ctx->gb_opt);
++        if (opt_ctx->state_init_cb) { // HAG patch
++            opt_ctx->state_init_cb(opt_ctx, opt_ctx->state_init_ud);
++        }
+     }
+ 
+     opt_ctx->buf_cpu = ggml_backend_alloc_ctx_tensors_from_buft(opt_ctx->ctx_cpu, ggml_backend_cpu_buffer_type());
+@@ -634,6 +640,35 @@
+     return ggml_graph_get_grad_acc(opt_ctx->gb_opt, node);
+ }
+ 
++int64_t ggml_opt_get_iter(ggml_opt_context_t opt_ctx) { return opt_ctx->iter; }
++void    ggml_opt_set_iter(ggml_opt_context_t opt_ctx, int64_t iter) { opt_ctx->iter = iter; }
++
++int ggml_opt_n_state(ggml_opt_context_t opt_ctx) {
++    return (int) opt_ctx->grad_m.size();
++}
++
++bool ggml_opt_state_at(ggml_opt_context_t opt_ctx, int i, struct ggml_tensor ** m, struct ggml_tensor ** v) {
++    if (i < 0 || i >= (int) opt_ctx->grad_m.size() || !opt_ctx->grad_m[i] || !opt_ctx->grad_v[i]) {
++        return false;
++    }
++    *m = opt_ctx->grad_m[i];
++    *v = opt_ctx->grad_v[i];
++    return true;
++}
++
++void ggml_opt_set_state_init_cb(ggml_opt_context_t opt_ctx, ggml_opt_state_init_fn cb, void * userdata) {
++    opt_ctx->state_init_cb = cb;
++    opt_ctx->state_init_ud = userdata;
++}
++
++void ggml_opt_zero_grad_accs(ggml_opt_context_t opt_ctx) {
++    for (struct ggml_tensor * acc : opt_ctx->grad_accs) {
++        if (acc && acc->buffer && ggml_nelements(acc) > 1) { // the scalar accumulator is the loss seed (== 1), keep it
++            ggml_set_zero(acc);
++        }
++    }
++}
++
+ // ====== Optimization Result ======
+ 
+ ggml_opt_result_t ggml_opt_result_init() {
+@@ -823,7 +858,9 @@
+ 
+     ggml_backend_sched_graph_compute(opt_ctx->backend_sched, opt_ctx->allocated_graph_copy);
+     opt_ctx->iter += opt_ctx->allocated_graph == opt_ctx->gb_opt;
+-    opt_ctx->opt_i = (opt_ctx->opt_i + 1) % opt_ctx->opt_period;
++    if (opt_ctx->build_type != GGML_OPT_BUILD_TYPE_FORWARD) { // HAG patch: a forward-only (validation) eval is not an accumulation step
++        opt_ctx->opt_i = (opt_ctx->opt_i + 1) % opt_ctx->opt_period;
++    }
+ 
+     if (!opt_ctx->static_graphs) {
+         opt_ctx->gf                   = nullptr;
+--- a/include/llama.h	2022-11-09 12:37:21.000000000 +0000
++++ b/include/llama.h	2026-10-05 12:56:51.226027577 +0000
+@@ -1719,8 +1719,28 @@
+         void * get_opt_pars_ud;                     // userdata for calculating optimizer parameters
+ 
+         enum ggml_opt_optimizer_type optimizer_type;
++
++        int32_t opt_period; // HAG patch: sequences per optimizer step (gradient accumulation); 0 = n_batch/n_ubatch
+     };
+ 
++    // HAG patch: tensor access
++    LLAMA_API int32_t               llama_model_n_tensors      (const struct llama_model * model);
++    LLAMA_API struct ggml_tensor *  llama_model_tensor_at      (const struct llama_model * model, int32_t i);
++    LLAMA_API struct ggml_tensor *  llama_model_tensor_by_name (const struct llama_model * model, const char * name);
++
++    // HAG patch: the ggml optimizer context behind llama_opt_init (NULL before it)
++    LLAMA_API ggml_opt_context_t llama_opt_get_context(struct llama_context * lctx);
++
++    // HAG patch: one forward (+ backward and, every opt_period calls, an optimizer step when train) over a single sequence of
++    // exactly n_ctx tokens with n_ctx labels (labels[i] = the token that follows tokens[i]). Requires n_batch == n_ubatch == n_ctx.
++    // The loss is accumulated into `result`. Returns 0 on success.
++    LLAMA_API int32_t llama_opt_sequence(
++            struct llama_context * lctx,
++            const llama_token    * tokens,
++            const llama_token    * labels,
++            bool                   train,
++            ggml_opt_result_t      result);
++
+     LLAMA_API void llama_opt_init(struct llama_context * lctx, struct llama_model * model, struct llama_opt_params lopt_params);
+ 
+     LLAMA_API void llama_opt_epoch(
+--- a/src/llama-context.h	2022-11-09 12:37:21.000000000 +0000
++++ b/src/llama-context.h	2026-10-05 12:56:51.226898125 +0000
+@@ -211,6 +211,9 @@
+             ggml_opt_epoch_callback callback_train,
+             ggml_opt_epoch_callback callback_eval);
+ 
++    int32_t opt_sequence(const llama_token * tokens, const llama_token * labels, bool train, ggml_opt_result_t result); // HAG patch
++    ggml_opt_context_t get_opt_ctx() const { return opt_ctx; } // HAG patch
++
+     void opt_epoch_iter(
+             ggml_opt_dataset_t               dataset,
+             ggml_opt_result_t                result,
+--- a/src/llama-context.cpp	2022-11-09 12:37:21.000000000 +0000
++++ b/src/llama-context.cpp	2026-10-05 13:05:00.658678899 +0000
+@@ -4,6 +4,8 @@
+ #include "llama-arch.h"
+ #include "llama-graph.h"
+ #include "llama-impl.h"
++#include "llama-kv-cache.h"
++#include "llama-kv-cache-iswa.h"
+ #include "llama-batch.h"
+ #include "llama-io.h"
+ #include "llama-memory.h"
+@@ -3541,10 +3543,18 @@
+     }
+ 
+     // gradients cannot flow through the KV cache, so the attention reads the K and V of the current ubatch directly
+-    if (n_ubatch == cparams.n_ctx) {
++    // HAG patch: the training sequence length (n_ctx_train) need not be a multiple of the 256-padded KV size:
++    // the cache reports an exact n_kv while training.
++    if (n_ubatch == model->hparams.n_ctx_train) {
+         cparams.training = true;
++        if (auto * kv = dynamic_cast<llama_kv_cache *>(memory.get())) {
++            kv->set_n_pad_min(1);
++        } else if (auto * kvi = dynamic_cast<llama_kv_cache_iswa *>(memory.get())) {
++            kvi->get_base()->set_n_pad_min(1);
++            kvi->get_swa()->set_n_pad_min(1);
++        }
+     } else {
+-        LLAMA_LOG_WARN("%s: n_ubatch (%u) != n_ctx (%u), the K and V projections will not receive gradients\n", __func__, n_ubatch, cparams.n_ctx);
++        LLAMA_LOG_WARN("%s: n_ubatch (%u) != n_ctx_train (%u), the K and V projections will not receive gradients\n", __func__, n_ubatch, model->hparams.n_ctx_train);
+     }
+ 
+     // the training graph is different, need to reserve again
+@@ -3552,7 +3562,7 @@
+     sched_reserve();
+ 
+     ggml_opt_params opt_params = ggml_opt_default_params(sched.get(), GGML_OPT_LOSS_TYPE_CROSS_ENTROPY);
+-    opt_params.opt_period      = n_batch / n_ubatch;
++    opt_params.opt_period      = lopt_params.opt_period > 0 ? lopt_params.opt_period : (int32_t)(n_batch / n_ubatch);
+     opt_params.get_opt_pars    = lopt_params.get_opt_pars;
+     opt_params.get_opt_pars_ud = lopt_params.get_opt_pars_ud;
+     opt_params.optimizer       = lopt_params.optimizer_type;
+@@ -3699,6 +3709,96 @@
+     }
+ }
+ 
++// HAG patch: single-sequence training/eval step (same graph/labels handling as opt_epoch_iter, no dataset).
++int32_t llama_context::opt_sequence(const llama_token * tokens, const llama_token * labels_sparse, bool train, ggml_opt_result_t result) {
++    GGML_ASSERT(opt_ctx);
++    const uint32_t n_ctx    = llama_model_n_ctx_train(&model);
++    const uint32_t n_batch  = std::min(this->n_batch(),  n_ctx);
++    const uint32_t n_ubatch = std::min(this->n_ubatch(), n_batch);
++    if (n_batch != n_ctx || n_ubatch != n_ctx) {
++        LLAMA_LOG_ERROR("%s: requires n_batch == n_ubatch == n_ctx\n", __func__);
++        return -1;
++    }
++
++    memory->clear(true);
++
++    llama_batch batch = llama_batch_init(n_batch, 0, 1);
++    int32_t ret = 0;
++    batch.n_tokens = n_batch;
++    for (uint32_t i = 0; i < n_batch; ++i) {
++        batch.token   [i]    = tokens[i];
++        batch.pos     [i]    = i;
++        batch.n_seq_id[i]    = 1;
++        batch.seq_id  [i][0] = 0;
++        batch.logits  [i]    = true;
++    }
++    do {
++        {
++            llama_batch_compat compat(this, batch);
++            if (!balloc->init(*compat.batch_ext, model.vocab, true)) {
++                LLAMA_LOG_ERROR("%s: failed to initialize batch\n", __func__);
++                ret = -2;
++                break;
++            }
++        }
++        const uint32_t n_tokens_all = balloc->get_n_tokens();
++        n_queued_tokens += n_tokens_all;
++        embd_seq.clear();
++        const uint32_t n_outputs_all = n_tokens_all;
++
++        auto mctx = memory->init_batch(*balloc, cparams.n_ubatch, true);
++        if (!mctx || mctx->get_status() != LLAMA_MEMORY_STATUS_SUCCESS) {
++            LLAMA_LOG_ERROR("%s: could not initialize batch\n", __func__);
++            ret = -3;
++            break;
++        }
++        if (output_reserve(n_outputs_all) < n_outputs_all) {
++            LLAMA_LOG_ERROR("%s: could not reserve space for %d outputs\n", __func__, n_outputs_all);
++            ret = -4;
++            break;
++        }
++        const auto & ubatch = mctx->get_ubatch();
++        n_outputs = ubatch.n_tokens;
++        if (!mctx->apply()) {
++            LLAMA_LOG_ERROR("%s: failed to update the memory context\n", __func__);
++            ret = -5;
++            break;
++        }
++
++        auto * res = get_gf_res_prev();
++        const auto gparams = graph_params(res, ubatch, mctx.get(), ctx_type_to_graph_type(cparams.ctx_type));
++        gf_res_prev_active = nullptr;
++        res->reset();
++        auto * gf = model.build_graph(gparams);
++
++        struct ggml_context * ctx_compute_opt;
++        {
++            const size_t size_gf = ggml_graph_size(gf);
++            const size_t size_meta = 4*size_gf*ggml_tensor_overhead() + 2*ggml_graph_overhead_custom(size_gf, /*grads = */ true);
++            struct ggml_init_params params = { size_meta, nullptr, true };
++            ctx_compute_opt = ggml_init(params);
++        }
++        ggml_opt_prepare_alloc(opt_ctx, ctx_compute_opt, gf, res->get_inp_tokens(), res->get_logits());
++        ggml_opt_alloc(opt_ctx, train);
++
++        res->set_inputs(&ubatch);
++        {
++            struct ggml_tensor * lt = ggml_opt_labels(opt_ctx);
++            GGML_ASSERT(lt->ne[1] == n_ubatch);
++            ggml_set_zero(lt);
++            const float onef = 1.0f;
++            for (uint32_t i = 0; i < n_ubatch; ++i) {
++                GGML_ASSERT(labels_sparse[i] >= 0 && labels_sparse[i] < lt->ne[0]);
++                ggml_backend_tensor_set(lt, &onef, (i*lt->ne[0] + labels_sparse[i])*sizeof(float), sizeof(float));
++            }
++        }
++        ggml_opt_eval(opt_ctx, result);
++        ggml_free(ctx_compute_opt);
++    } while (false);
++    llama_batch_free(batch);
++    return ret;
++}
++
+ void llama_context::opt_epoch(
+         ggml_opt_dataset_t        dataset,
+         ggml_opt_result_t         result_train,
+@@ -4474,6 +4574,14 @@
+         callback_eval);
+ }
+ 
++ggml_opt_context_t llama_opt_get_context(struct llama_context * ctx) {
++    return ctx->get_opt_ctx();
++}
++
++int32_t llama_opt_sequence(struct llama_context * ctx, const llama_token * tokens, const llama_token * labels, bool train, ggml_opt_result_t result) {
++    return ctx->opt_sequence(tokens, labels, train, result);
++}
++
+ int32_t llama_process(llama_context * ctx, llama_process_type type, llama_batch_ext * batch) {
+     switch (type) {
+         case LLAMA_PROCESS_TYPE_ENCODE: return ctx->encode(*batch);
+--- a/src/llama-model.cpp	2022-11-09 12:37:21.000000000 +0000
++++ b/src/llama-model.cpp	2026-10-05 12:56:51.243461916 +0000
+@@ -3344,6 +3344,26 @@
+     return model->tensors_by_name;
+ }
+ 
++int32_t llama_model_n_tensors(const struct llama_model * model) {
++    return (int32_t) model->tensors_by_name.size();
++}
++
++struct ggml_tensor * llama_model_tensor_at(const struct llama_model * model, int32_t i) {
++    if (i < 0 || (size_t) i >= model->tensors_by_name.size()) {
++        return nullptr;
++    }
++    return model->tensors_by_name[i].second;
++}
++
++struct ggml_tensor * llama_model_tensor_by_name(const struct llama_model * model, const char * name) {
++    for (const auto & it : model->tensors_by_name) {
++        if (it.first == name) {
++            return it.second;
++        }
++    }
++    return nullptr;
++}
++
+ int32_t llama_model_n_expert(const struct llama_model * model) {
+     return model->hparams.n_expert;
+ }
+--- a/src/llama-kv-cache.h	2022-11-09 12:37:21.000000000 +0000
++++ b/src/llama-kv-cache.h	2026-10-05 13:04:53.434549108 +0000
+@@ -19,6 +19,8 @@
+ 
+ class llama_kv_cache : public llama_memory_i {
+ public:
++    void set_n_pad_min(uint32_t p) { n_pad_min = p; } // HAG patch
++
+     struct stream_copy_info {
+         bool empty() const {
+             assert(ssrc.size() == sdst.size());
+@@ -274,6 +276,9 @@
+     // required padding
+     const uint32_t n_pad = 1;
+ 
++    // HAG patch: minimum padding of the n_kv reported to graphs (default 256); training sets it to 1
++    uint32_t n_pad_min = 256;
++
+     // SWA
+     const uint32_t n_swa = 0;
+ 
+--- a/src/llama-kv-cache.cpp	2022-11-09 12:37:21.000000000 +0000
++++ b/src/llama-kv-cache.cpp	2026-10-05 13:04:53.435460581 +0000
+@@ -1262,7 +1262,7 @@
+ 
+     // pad the n_kv value so that the graph remains constant across batches and can be reused
+     // note: this also helps some backends with performance (f.ex https://github.com/ggml-org/llama.cpp/pull/16812#issuecomment-3455112220)
+-    const uint32_t n_pad_cur = std::max(n_pad, 256u);
++    const uint32_t n_pad_cur = std::max(n_pad, n_pad_min);
+ 
+     for (uint32_t s = 0; s < sinfo.n_stream(); ++s) {
+         const auto & cells = v_cells[sinfo.strm[s]];
