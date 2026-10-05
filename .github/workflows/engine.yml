@@ -12,9 +12,11 @@ on:
         description: 'epochs for the tiny pre-trained fixture used by the unit/integration suite'
         default: '2'
 
+# Never cancel a run that is already measuring: the real-model grid takes tens of minutes and is the evidence for the
+# specialization claim. A newer push queues behind it (GitHub keeps only the newest pending run).
 concurrency:
   group: engine-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
