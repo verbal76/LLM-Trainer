@@ -133,6 +133,12 @@ typedef struct hag_train_params {
     int32_t  train_embeddings;      /* nonzero: also train token embeddings / output head */
     int32_t  checkpoint_every_steps;/* 0 = once per epoch */
     size_t   max_memory_bytes;      /* refuse (HAG_ERR_OOM) instead of starting if the estimate exceeds this; 0 = no limit */
+    /* ---- appended after the first commit (additive; read only if struct_size covers them, otherwise treated as 0) ---- */
+    int32_t  lora_rank;             /* 0 = tune base weights (patch replaces tensors). >0 = LoRA: train rank-r adapters on every attention/FFN
+                                       projection of the trainable layers with the base FROZEN (quantized bases need no F32 copy, the base can
+                                       stay mmap'd; optimizer state is tiny). The patch is then a standard llama.cpp LoRA adapter GGUF
+                                       (plus hag.* provenance keys) and trainable_last_layers selects the layers that get adapters. */
+    float    lora_alpha;            /* LoRA scale = lora_alpha / lora_rank; 0 = 2 * lora_rank */
 } hag_train_params;
 
 enum { HAG_PHASE_PREPARE = 0, HAG_PHASE_TRAIN = 1, HAG_PHASE_EVAL = 2, HAG_PHASE_SAVE = 3, HAG_PHASE_DONE = 4 };
