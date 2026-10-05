@@ -74,6 +74,7 @@ def main():
     ap.add_argument("--quant", default=None, choices=["q8_0", "q4_0", "q4_1", "q5_0"],
                     help="quantize 2-D weight matrices (norms stay F32), like llama-quantize would")
     ap.add_argument("--from-model", default=None, help="take all tensors from this GGUF instead of random init (same shape flags needed only for metadata)")
+    ap.add_argument("--no-chat-template", action="store_true")
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--init-std", type=float, default=0.02)
     a = ap.parse_args()
@@ -118,8 +119,9 @@ def main():
     w.add_unk_token_id(0)
     w.add_add_bos_token(True)
     w.add_add_eos_token(False)
-    w.add_chat_template("{% for m in messages %}<|im_start|>{{ m['role'] }}\n{{ m['content'] }}<|im_end|>\n{% endfor %}"
-                        "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}")
+    if not a.no_chat_template:
+        w.add_chat_template("{% for m in messages %}<|im_start|>{{ m['role'] }}\n{{ m['content'] }}<|im_end|>\n{% endfor %}"
+                            "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}")
 
     qt = {"q8_0": gguf.GGMLQuantizationType.Q8_0, "q4_0": gguf.GGMLQuantizationType.Q4_0,
           "q4_1": gguf.GGMLQuantizationType.Q4_1, "q5_0": gguf.GGMLQuantizationType.Q5_0}.get(a.quant)
