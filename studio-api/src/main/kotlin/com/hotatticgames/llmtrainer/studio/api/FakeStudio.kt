@@ -14,7 +14,7 @@ import java.security.MessageDigest
  * Ingest hooks: name contains "corrupt" or bytes start with "%CORRUPT" -> CORRUPT_FILE; pdf with "scan" in name ->
  * NEEDS_OCR; identical bytes -> DUPLICATE.
  */
-class FakeStudio(seedSampleData: Boolean = true) : Studio {
+class FakeStudio(seedSampleData: Boolean = true, preinstallBaseModels: Boolean = false) : Studio {
     private var clock = 1_760_000_000_000L
     private fun now(): Long { clock += 1000; return clock }
     private var seq = 0
@@ -46,6 +46,22 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
     private val projects = LinkedHashMap<String, P>()
     private val ops = LinkedHashMap<String, Operation>()
 
+    /** Scripted v2 state and knobs (engineAvailable, charging, batteryPercent, thermal, ...). */
+    val v2: FakeStudioV2 by lazy { FakeStudioV2(object : FakeStudioV2.Env {
+        override fun now() = this@FakeStudio.now()
+        override fun nextId(prefix: String) = this@FakeStudio.nextId(prefix)
+        override fun projectExists(id: ProjectId) = projects.containsKey(id.value)
+        override fun baseModel(id: ProjectId) = projects[id.value]?.let { p -> p.baseModelId?.let { it to p.variantId } }
+        override fun baseInstalled(id: ProjectId) = projects[id.value]?.let { isInstalled(it) } ?: false
+        override fun datasetApproved(id: ProjectId) = projects[id.value]?.dataset?.status == DatasetStatus.APPROVED
+        override fun baseName(modelId: String) = models[modelId]?.name ?: modelId
+        override fun projectsUsing(variantId: String) = projects.values.filter { it.variantId == variantId }.map { it.id }
+        override fun installedVariants() = acquired.mapNotNull { v -> variantOf(v)?.let { (m, vv) -> Triple(m.id, vv.id, vv.sizeBytes) } }
+        override fun variantMeta(variantId: String) = variantOf(variantId)?.let { (m, v) -> m.name to v.quant }
+        override fun licenseOk(modelId: String) = models[modelId]?.license?.state == LicenseState.VERIFIED
+    }) }
+
+
     init {
         addModel("qwen3-4b", "Qwen", "Qwen3 4B", "3", 4.0, "qwen3", LicenseState.VERIFIED, "Apache-2.0",
             "https://huggingface.co/Qwen/Qwen3-4B/raw/main/LICENSE", listOf(Triple("q4_k_m", 2_500_000_000L, 3300), Triple("q8_0", 4_300_000_000L, 5300)))
@@ -59,6 +75,18 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
             "https://example.org/sample-restricted/LICENSE", listOf(Triple("q4_k_m", 4_200_000_000L, 5500)),
             "Sample data: license forbids derivative models")
         if (seedSampleData) seed()
+        if (preinstallBaseModels) { acquired += "qwen3-4b:q4_k_m" }
+    }
+
+    companion object {
+        /** UI-development fixture: base model already installed, a trained + selected specialist on "Town Design" (project 3), engine available. */
+        fun sampleV2(): FakeStudio {
+            val s = FakeStudio(seedSampleData = true, preinstallBaseModels = true)
+            val town = s.listProjects().first { it.name == "Town Design" }.id
+            val run = s.startLocalTraining(town, TrainingSettings(), true).getOrNull()
+            if (run != null) repeat(5) { s.tick() }
+            return s
+        }
     }
 
     private fun addModel(id: String, family: String, name: String, version: String, params: Double, arch: String,
@@ -129,6 +157,7 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
         val st = Stages.derive(facts(p))
         return ProjectSummary(p.id, p.name, p.domain, p.purpose, p.created, p.updated, p.baseModelId, st, Stages.nextAction(st))
     }
+    private fun isInstalled(p: P) = p.variantId?.let { it in acquired } ?: acquired.any { it.startsWith(p.baseModelId + ":") }
     private fun touch(p: P) { p.updated = now() }
     private fun <T> withP(id: ProjectId, f: (P) -> StudioResult<T>): StudioResult<T> =
         projects[id.value]?.let(f) ?: StudioResult.Err(StudioError.NotFound("project ${id.value}"))
@@ -290,6 +319,7 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
     // ---- test/preview hooks (not part of Studio)
     /** Advance every RUNNING operation by a quarter of its total. */
     fun tick() {
+        v2.tick()
         for (o in ops.values.toList()) if (o.state == OperationState.RUNNING) {
             val done = minOf(o.progress.total, o.progress.done + maxOf(1, o.progress.total / 4))
             if (done >= o.progress.total) {
@@ -299,7 +329,7 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
         }
     }
     /** RUNNING -> PAUSED (resumable), as after the process was killed. */
-    fun simulateProcessDeath() { ops.values.toList().filter { it.state == OperationState.RUNNING }.forEach { upd(it) { o -> o.copy(state = OperationState.PAUSED, message = "Interrupted; resume to continue") } } }
+    fun simulateProcessDeath() { v2.simulateProcessDeath(); ops.values.toList().filter { it.state == OperationState.RUNNING }.forEach { upd(it) { o -> o.copy(state = OperationState.PAUSED, message = "Interrupted; resume to continue") } } }
     fun failOperation(id: String, message: String) { ops[id]?.let { o -> upd(o) { it.copy(state = OperationState.FAILED, error = StudioError.Network(message), message = message) } } }
 
     // ---------------------------------------------------------------- sources
@@ -450,6 +480,13 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
             lic != LicenseState.VERIFIED -> "Base model license is $lic; verify it first"
             else -> null
         }
+        val onDeviceWhy = when {
+            !v2.engineAvailable -> "This install has no training runtime (nativeRuntimeId ${device.nativeRuntimeId}); it needs the native engine."
+            p.baseModelId == null -> "Choose a base model first"
+            !isInstalled(p) -> "Download or import the base model first"
+            lic != LicenseState.VERIFIED -> "Base model license is $lic; verify it first"
+            else -> null
+        }
         return listOf(
             MethodOption(MethodIds.REFERENCE_PACKAGE, "Reference package (retrieval)", false, RunLocation.DEVICE, true, null,
                 "Exact-reference lookup over your source chunks. This is NOT training; the model is unchanged."),
@@ -457,9 +494,12 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
                 "Instructions only. This is NOT training and does not add knowledge."),
             MethodOption(MethodIds.ADAPTER_DESKTOP, "Adapter training (LoRA/QLoRA) on desktop", true, RunLocation.DESKTOP, tuneWhy == null, tuneWhy,
                 "This phone only prepares the training job package. Training happens on a desktop/GPU via 'llmtrainer import-job'; nothing is trained on this device."),
-            MethodOption(MethodIds.ADAPTER_ON_DEVICE, "Adapter training on this device", true, RunLocation.DEVICE, false,
-                "This app version has no training runtime (nativeRuntimeId ${device.nativeRuntimeId}); it needs a future app update.",
-                "Not available. Nothing is claimed to train on the phone."))
+            MethodOption(MethodIds.ADAPTER_ON_DEVICE, "Fine-tune all layers on this phone", true, RunLocation.DEVICE, false,
+                if (!v2.engineAvailable) "This install has no training runtime (nativeRuntimeId ${device.nativeRuntimeId}); it needs the native engine."
+                else "Too large for this phone's safe memory envelope (estimated 9.8 GB). Use the partial option or a desktop job.",
+                "Changes model parameters on this phone. Not available here."),
+            MethodOption(MethodIds.PARTIAL_ON_DEVICE, "Fine-tune the last layers on this phone", true, RunLocation.DEVICE, onDeviceWhy == null, onDeviceWhy,
+                "Changes model parameters on this phone (a patch file; the base model is untouched). Partial fine-tune, not full."))
     }
     override fun methodOptions(projectId: ProjectId) = withP(projectId) { ok(methodList(it)) }
     override fun selectMethod(projectId: ProjectId, methodId: String) = withP(projectId) { p ->
@@ -565,6 +605,37 @@ class FakeStudio(seedSampleData: Boolean = true) : Studio {
             kv["claim"] == "true", listOf("Runs with any GGUF-capable runtime that supports the base model"), listOf("Exact facts should be grounded with the reference package"),
             checks, checks.all { it.passed }))
     }
+
+    // ---------------------------------------------------------------- v2 (phone-first): scripted, see FakeStudioV2
+    override fun engineStatus() = v2.engineStatus()
+    override fun installedModels() = v2.installedModels()
+    override fun projectModelState(projectId: ProjectId) = v2.projectModelState(projectId)
+    override fun createChat(projectId: ProjectId, target: ChatTarget, specialistId: String?, options: ChatOptions) = v2.createChat(projectId, target, specialistId, options)
+    override fun listChats(projectId: ProjectId) = v2.listChats(projectId)
+    override fun chatHistory(chatId: String) = v2.chatHistory(chatId)
+    override fun deleteChat(chatId: String) = v2.deleteChat(chatId)
+    override fun sendMessage(chatId: String, text: String, cancel: CancelToken, onToken: (String) -> Unit) = v2.sendMessage(chatId, text, cancel, onToken)
+    override fun localTrainingPlan(projectId: ProjectId) = v2.localTrainingPlan(projectId)
+    override fun startLocalTraining(projectId: ProjectId, settings: TrainingSettings, confirmed: Boolean) = v2.startLocalTraining(projectId, settings, confirmed)
+    override fun trainingRuns(projectId: ProjectId) = v2.trainingRuns(projectId)
+    override fun trainingRun(runId: String) = v2.trainingRun(runId)
+    override fun pauseTraining(runId: String) = v2.pauseTraining(runId)
+    override fun cancelTraining(runId: String) = v2.cancelTraining(runId)
+    override fun resumeTraining(runId: String) = v2.resumeTraining(runId)
+    override fun specialists(projectId: ProjectId) = v2.specialists(projectId)
+    override fun verifySpecialist(specialistId: String) = v2.verifySpecialist(specialistId)
+    override fun selectSpecialist(projectId: ProjectId, specialistId: String?) = v2.selectSpecialist(projectId, specialistId)
+    override fun deleteSpecialist(specialistId: String) = v2.deleteSpecialist(specialistId)
+    override fun exportSpecialistPatch(specialistId: String, out: OutputStream) = v2.exportSpecialistPatch(specialistId, out)
+    override fun startLocalEvaluation(projectId: ProjectId, specialistId: String, options: LocalEvalOptions) = v2.startLocalEvaluation(projectId, specialistId, options)
+    override fun localEvaluations(projectId: ProjectId) = v2.localEvaluations(projectId)
+    override fun localEvaluation(evalId: String) = v2.localEvaluation(evalId)
+    override fun cancelLocalEvaluation(evalId: String) = v2.cancelLocalEvaluation(evalId)
+    override fun compareAB(projectId: ProjectId, specialistId: String, prompt: String, options: ABOptions, cancel: CancelToken, onToken: (ChatTarget, String) -> Unit) =
+        v2.compareAB(projectId, specialistId, prompt, options, cancel, onToken)
+    override fun abComparisons(projectId: ProjectId) = v2.abComparisons(projectId)
+    override fun saveABNote(projectId: ProjectId, comparisonId: String, note: String) = v2.saveABNote(projectId, comparisonId, note)
+    override fun deleteAB(projectId: ProjectId, comparisonId: String) = v2.deleteAB(projectId, comparisonId)
 
     // ---------------------------------------------------------------- host
     var restartCount = 0; private set

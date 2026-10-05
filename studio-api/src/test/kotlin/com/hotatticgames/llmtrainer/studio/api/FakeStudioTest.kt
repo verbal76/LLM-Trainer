@@ -136,9 +136,11 @@ class FakeStudioTest {
 
     @Test fun methodOptionsAreHonest() {
         val s = FakeStudio()
+        s.v2.engineAvailable = false      // v1 host: no native runtime
         val moto = proj(s, "Motorcycle Mechanic").id
         val m = s.methodOptions(moto).ok().associateBy { it.id }
         assertFalse(m.getValue(MethodIds.ADAPTER_ON_DEVICE).available)
+        assertFalse(m.getValue(MethodIds.PARTIAL_ON_DEVICE).available)
         assertTrue(m.getValue(MethodIds.ADAPTER_ON_DEVICE).whyNotAvailable!!.contains("runtime"))
         assertFalse(m.getValue(MethodIds.REFERENCE_PACKAGE).isTraining)
         assertFalse(m.getValue(MethodIds.PROMPT_SPECIALIZATION).isTraining)

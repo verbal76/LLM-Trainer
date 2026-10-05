@@ -229,13 +229,18 @@ data class ReviewFilter(
 data class MethodOption(
     val id: String, val label: String, val isTraining: Boolean, val whereItRuns: RunLocation,
     val available: Boolean, val whyNotAvailable: String?, val honestyNote: String,
+    /** v2: true only when model parameters are modified (training). RAG/prompting/dataset building are never. Defaults to isTraining. */
+    val changesParameters: Boolean = isTraining,
 )
 
 object MethodIds {
     const val REFERENCE_PACKAGE = "reference-package"
     const val PROMPT_SPECIALIZATION = "prompt-specialization"
     const val ADAPTER_DESKTOP = "adapter-training-desktop"
+    /** On-device parameter fine-tune of ALL layers (engine-dependent; v2). The id is historical: no LoRA adapter is implied. */
     const val ADAPTER_ON_DEVICE = "adapter-training-on-device"
+    /** On-device parameter fine-tune of the last N transformer blocks (v2). */
+    const val PARTIAL_ON_DEVICE = "finetune-last-layers-on-device"
 }
 
 // ===== Evaluation & specialist packages ========================================================================
