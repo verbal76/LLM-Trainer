@@ -6,6 +6,7 @@
 //   hag_cli tokenize <model> --text TEXT
 //   hag_cli train <model> --data FILE --work DIR --out PATCH [--epochs N] [--lr F] [--ctx N] [--batch TOKENS] [--val F] [--seed S]
 //                         [--threads N] [--last-layers N] [--emb] [--ckpt-every N] [--max-mem BYTES] [--quiet]
+//                         [--lora-rank R [--lora-alpha A]]
 //                         [--cancel-after-steps N]
 //   hag_cli estimate <model> [train options]
 //   hag_cli patch-info <patch>
@@ -146,6 +147,8 @@ static hag_train_params train_params(const Args & a) {
     p.train_embeddings = a.has("emb") ? 1 : 0;
     p.checkpoint_every_steps = (int)a.num("ckpt-every", 0);
     p.max_memory_bytes = (size_t)a.num("max-mem", 0);
+    p.lora_rank = (int)a.num("lora-rank", 0);
+    p.lora_alpha = (float)a.num("lora-alpha", 0);
     return p;
 }
 

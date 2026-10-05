@@ -24,6 +24,7 @@
 #define HAG_KEY_PAYLOAD_SHA256   "hag.patch.payload.sha256"
 #define HAG_KEY_FINGERPRINT      "hag.patch.run_fingerprint"
 #define HAG_KEY_ENGINE           "hag.patch.engine"
+#define HAG_KEY_KIND             "hag.patch.kind"   /* "replace" (tensor replacement) | "lora" (llama.cpp LoRA adapter) */
 
 struct hag_model {
     llama_model *                  model = nullptr;
@@ -38,6 +39,8 @@ struct hag_model {
     std::string                    patch_file_sha256;
     std::string                    patch_json;
     std::vector<ggml_backend_buffer_t> patch_bufs;    // owned replacement tensor storage
+    llama_adapter_lora *           adapter = nullptr; // LoRA patch (owned)
+    std::string                    patch_kind;
     std::atomic<int>               n_sessions{0};
 };
 
@@ -49,6 +52,8 @@ struct PatchHeader {
     std::string          path;
     int64_t              file_size = 0;
     uint32_t             version = 0;
+    std::string          kind = "replace";
+    float                lora_alpha = 0.f;
     std::string          base_arch, base_sha256, payload_sha256, fingerprint, engine;
     uint64_t             base_size = 0;
     uint32_t             base_n_tensors = 0;

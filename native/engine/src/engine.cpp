@@ -168,6 +168,7 @@ static void build_model_info(hag_model * hm) {
     j.kv("patched", hm->patched);
     if (hm->patched) {
         j.kv("patch_path", hm->patch_path);
+        j.kv("patch_kind", hm->patch_kind);
         j.kv("patch_sha256", hm->patch_file_sha256);
     }
     if (!hm->base_sha256.empty()) j.kv("base_sha256", hm->base_sha256);
@@ -211,6 +212,7 @@ hag_status hag_model_load(const char * gguf_path, int use_mmap, hag_progress_fn 
 
 void hag_model_free(hag_model * hm) {
     if (!hm) return;
+    if (hm->adapter) llama_adapter_lora_free(hm->adapter);
     if (hm->model) llama_model_free(hm->model);
     for (ggml_backend_buffer_t b : hm->patch_bufs) ggml_backend_buffer_free(b);
     delete hm;
@@ -239,8 +241,18 @@ std::string patch_read_header(const char * path, PatchHeader & h) {
     std::string err;
     std::string arch = kv_string(g, "general.architecture", true, err);
     if (!err.empty()) return err;
-    if (arch != HAG_PATCH_ARCH) return "not a HAG specialist patch (architecture '" + arch + "')";
-    int64_t id = gguf_find_key(g, HAG_KEY_VERSION);
+    int64_t id;
+    if (arch == HAG_PATCH_ARCH) {
+        h.kind = "replace";
+    } else {   // a standard llama.cpp LoRA adapter that carries hag.* provenance keys
+        std::string e2, gtype = kv_string(g, "general.type", false, e2), atype = kv_string(g, "adapter.type", false, e2);
+        std::string kind = kv_string(g, HAG_KEY_KIND, false, e2);
+        if (gtype != "adapter" || atype != "lora" || kind != "lora") return "not a HAG specialist patch (architecture '" + arch + "')";
+        h.kind = "lora";
+        id = gguf_find_key(g, "adapter.lora.alpha");
+        if (id >= 0 && gguf_get_kv_type(g, id) == GGUF_TYPE_FLOAT32) h.lora_alpha = gguf_get_val_f32(g, id);
+    }
+    id = gguf_find_key(g, HAG_KEY_VERSION);
     if (id < 0 || gguf_get_kv_type(g, id) != GGUF_TYPE_UINT32) return "missing patch format version";
     h.version = gguf_get_val_u32(g, id);
     if (h.version != HAG_PATCH_FORMAT_VERSION) return "unsupported patch format version " + std::to_string(h.version);
@@ -273,6 +285,7 @@ std::string patch_info_json(const PatchHeader & h, const std::string & file_sha2
     Json j;
     j.begin_obj();
     j.kv("format", "hag-patch");
+    j.kv("kind", h.kind);
     j.kv("format_version", (uint64_t)h.version);
     j.kv("file_bytes", (int64_t)h.file_size);
     j.kv("patch_sha256", file_sha256);
@@ -368,6 +381,43 @@ hag_status hag_model_apply_patch(hag_model * hm, const char * patch_path) {
         return make_status(HAG_ERR_CORRUPT, "patch was made for a different base model (sha256 %.12s... != %.12s...)", h.base_sha256.c_str(), hm->base_sha256.c_str());
     }
 
+    if (h.kind == "lora") {
+        if (h.base_arch != hm->arch) return make_status(HAG_ERR_CORRUPT, "patch rejected: architecture mismatch");
+        // verify the payload hash by streaming the tensor bytes, then let llama.cpp attach the adapter (it validates every shape)
+        FILE * f = fopen(patch_path, "rb");
+        if (!f) return make_status(HAG_ERR_IO, "cannot open patch");
+        Sha256 payload;
+        std::vector<uint8_t> buf(1 << 20);
+        const gguf_context * gg = h.gguf;
+        for (int64_t i = 0; i < gguf_get_n_tensors(gg); i++) {
+            uint64_t off = (uint64_t)h.data_offset + gguf_get_tensor_offset(gg, i), left = gguf_get_tensor_size(gg, i);
+            if (fseek64(f, (int64_t)off, SEEK_SET) != 0) { fclose(f); return make_status(HAG_ERR_CORRUPT, "patch rejected: seek failed"); }
+            while (left) {
+                size_t n = (size_t)std::min<uint64_t>(left, buf.size());
+                if (fread(buf.data(), 1, n, f) != n) { fclose(f); return make_status(HAG_ERR_CORRUPT, "patch rejected: short read"); }
+                payload.update(buf.data(), n);
+                left -= n;
+            }
+        }
+        fclose(f);
+        if (payload.final_hex() != h.payload_sha256) return make_status(HAG_ERR_CORRUPT, "patch rejected: payload hash mismatch (patch file corrupted)");
+        clear_native_error();
+        llama_adapter_lora * ad = llama_adapter_lora_init(hm->model, patch_path);
+        if (!ad) {
+            std::string e = last_native_error();
+            return make_status(HAG_ERR_CORRUPT, "patch rejected: adapter does not fit the base: %s", e.c_str());
+        }
+        hm->adapter = ad;
+        hm->patched = true;
+        hm->patch_kind = "lora";
+        hm->patch_path = patch_path;
+        std::string fh;
+        sha256_file(patch_path, fh);
+        hm->patch_file_sha256 = fh;
+        build_model_info(hm);
+        return ok_status();
+    }
+
     // validate every tensor against the loaded base, then stream payloads into private buffers (hash verified)
     gguf_context * g = h.gguf;
     int64_t nt = gguf_get_n_tensors(g);
@@ -418,6 +468,7 @@ hag_status hag_model_apply_patch(hag_model * hm, const char * patch_path) {
         hm->patch_bufs.push_back(it.buf);
     }
     hm->patched = true;
+    hm->patch_kind = "replace";
     hm->patch_path = patch_path;
     {
         std::string fh;
@@ -462,6 +513,13 @@ hag_status hag_session_new(hag_model * hm, const hag_session_params * sp, hag_se
     if (!c) {
         std::string e = last_native_error();
         return make_status(HAG_ERR_OOM, "cannot create context (n_ctx=%d): %s", n_ctx, e.empty() ? "allocation failed" : e.c_str());
+    }
+    if (hm->adapter) {
+        float one = 1.0f;
+        if (llama_set_adapters_lora(c, &hm->adapter, 1, &one) != 0) {
+            llama_free(c);
+            return make_status(HAG_ERR_INTERNAL, "cannot activate the LoRA patch");
+        }
     }
     hag_session * s = new hag_session();
     s->model = hm; s->ctx = c; s->n_ctx = n_ctx; s->n_batch = n_batch; s->n_threads = n_threads;

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <set>
 #include <thread>
@@ -58,6 +59,8 @@ struct Cfg {
     uint32_t seed = 1;
     bool     train_emb = false;
     size_t   max_mem = 0;
+    int      lora_rank = 0;
+    float    lora_alpha = 0.f;
 };
 
 static int auto_threads_train() {
@@ -94,6 +97,10 @@ static std::string normalize(const hag_train_params * in, Cfg & c) {
     c.train_emb = p.train_embeddings != 0;
     c.ckpt_every = std::max(0, p.checkpoint_every_steps);
     c.max_mem = p.max_memory_bytes;
+    c.lora_rank = std::max(0, p.lora_rank);
+    c.lora_alpha = p.lora_alpha > 0 ? p.lora_alpha : 2.f * (float)c.lora_rank;
+    if (c.lora_rank > 0) c.train_emb = false;   // adapters only
+    if (c.lora_rank > 512) return "lora_rank too large";
     return "";
 }
 
@@ -174,6 +181,10 @@ struct Plan {
     bool        tied = false;
     bool        emb_effective = false;  // train_embeddings actually trains something
     bool        base_quantized = false;
+    bool        lora = false;
+    int         lora_rank = 0;
+    std::vector<TInfo> adapter;         // LoRA: the trainable adapter tensors (<base>.lora_a / .lora_b), F32
+    std::vector<int>   adapter_base;    // index into BaseInfo::t of the adapted weight for each PAIR
 };
 
 static bool type_to_f32_ok(ggml_type t) {
@@ -190,6 +201,40 @@ static Plan make_plan(BaseInfo & b, const Cfg & c) {
     }
     p.first_layer = (c.last_layers <= 0 || c.last_layers >= b.n_layer) ? 0 : b.n_layer - c.last_layers;
     p.tied = !b.has_output;
+    if (c.lora_rank > 0) {
+        p.lora = true;
+        p.lora_rank = c.lora_rank;
+        static const char * kTargets[] = {"attn_q.weight", "attn_k.weight", "attn_v.weight", "attn_output.weight",
+                                          "ffn_gate.weight", "ffn_up.weight", "ffn_down.weight"};
+        for (size_t i = 0; i < b.t.size(); i++) {
+            TInfo & t = b.t[i];
+            t.trainable = false;
+            if (t.type != GGML_TYPE_F32) p.base_quantized = true;
+            p.base_bytes += t.nbytes;
+            p.weights_bytes += t.nbytes;
+            if (t.layer < p.first_layer || t.ne[2] != 1 || t.ne[3] != 1 || t.ne[1] < 2) continue;
+            bool hit = false;
+            for (const char * k : kTargets) {
+                std::string suf = std::string(".") + k;
+                if (t.name.size() > suf.size() && t.name.compare(t.name.size() - suf.size(), suf.size(), suf) == 0) hit = true;
+            }
+            if (!hit) continue;
+            if (c.lora_rank > std::min(t.ne[0], t.ne[1])) { p.reason = "lora_rank exceeds the smaller dimension of " + t.name; return p; }
+            TInfo a, bb;
+            a.name = t.name + ".lora_a"; a.type = GGML_TYPE_F32; a.ne[0] = t.ne[0]; a.ne[1] = c.lora_rank; a.ne[2] = a.ne[3] = 1;
+            bb.name = t.name + ".lora_b"; bb.type = GGML_TYPE_F32; bb.ne[0] = c.lora_rank; bb.ne[1] = t.ne[1]; bb.ne[2] = bb.ne[3] = 1;
+            for (TInfo * x : {&a, &bb}) { x->nelem = x->ne[0] * x->ne[1]; x->nbytes = (size_t)x->nelem * 4; x->offset = 0; x->trainable = true; x->layer = t.layer; }
+            p.adapter.push_back(a);
+            p.adapter.push_back(bb);
+            p.adapter_base.push_back((int)i);
+            p.p_train += (uint64_t)(a.nelem + bb.nelem);
+            p.n_train_tensors += 2;
+        }
+        if (p.adapter.empty()) { p.reason = "no adaptable projections found in the selected layers"; return p; }
+        p.needs_working_copy = false;
+        p.ok = true;
+        return p;
+    }
     for (TInfo & t : b.t) {
         t.trainable = false;
         if (t.layer >= p.first_layer) t.trainable = true;
@@ -226,8 +271,9 @@ static Est estimate(const BaseInfo & b, const Plan & p, int n_ctx, int n_embd, i
     const int n_tr_layers = b.n_layer - p.first_layer;
     e.weights = p.weights_bytes;
     // duplicated output head for tied embeddings (loaded as its own tensor in the non-mmap model)
-    if (p.tied) e.weights += (uint64_t)n_vocab * n_embd * 4;  // upper bound (F32)
-    e.optimizer = 12ull * p.p_train;  // 4 B gradient accumulator + 8 B Adam moments per trainable parameter
+    if (p.tied && !p.lora) e.weights += (uint64_t)n_vocab * n_embd * 4;  // upper bound (F32)
+    // 4 B gradient accumulator + 8 B Adam moments per trainable parameter (+ 4 B for the adapter weights themselves with LoRA)
+    e.optimizer = (p.lora ? 16ull : 12ull) * p.p_train;
     // per trained layer: activations kept for the backward pass, ~ (c_e*d + c_f*ff + c_kv*dkv) floats per token + attention scores
     const double per_tok = 4.0 * (14.0 * n_embd + 5.0 * n_ff + 4.0 * n_embd_kv);
     const double scores  = 4.0 * 2.0 * (double)n_head * (double)n * (double)n;
@@ -240,7 +286,8 @@ static Est estimate(const BaseInfo & b, const Plan & p, int n_ctx, int n_embd, i
     e.total = e.weights + e.optimizer + e.activations + e.logits + e.kv + e.overhead;
     e.disk_working = p.needs_working_copy ? p.weights_bytes : 0;
     e.disk_ckpt = 2ull * 12ull * p.p_train + (1ull << 20);
-    for (const TInfo & t : b.t) if (t.trainable) e.patch_bytes += t.nbytes;
+    if (p.lora) e.patch_bytes = 4ull * p.p_train + (1ull << 16);
+    else for (const TInfo & t : b.t) if (t.trainable) e.patch_bytes += t.nbytes;
     return e;
 }
 
@@ -668,6 +715,47 @@ static std::string build_working_copy(const char * base_path, const BaseInfo & b
     return "";
 }
 
+// Writes the initial adapter (standard llama.cpp LoRA GGUF layout). Deterministic in (seed, shapes).
+static std::string write_lora_init(const std::string & path, const BaseInfo & b, const Plan & plan, const Cfg & c) {
+    ggml_init_params gp = {plan.adapter.size() * ggml_tensor_overhead() + (1u << 20), nullptr, true};
+    ggml_context * ctx = ggml_init(gp);
+    struct C { ggml_context * c; ~C() { ggml_free(c); } } cg{ctx};
+    gguf_context * g = gguf_init_empty();
+    struct G { gguf_context * g; ~G() { gguf_free(g); } } gg{g};
+    gguf_set_val_str(g, "general.architecture", b.arch.c_str());
+    gguf_set_val_str(g, "general.type", "adapter");
+    gguf_set_val_str(g, "adapter.type", "lora");
+    gguf_set_val_f32(g, "adapter.lora.alpha", c.lora_alpha);
+    for (const TInfo & t : plan.adapter) {
+        ggml_tensor * x = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, t.ne[0], t.ne[1]);
+        ggml_set_name(x, t.name.c_str());
+        gguf_add_tensor(g, x);
+    }
+    const size_t meta = gguf_get_meta_size(g);
+    std::vector<uint8_t> mb(meta);
+    gguf_get_meta_data(g, mb.data());
+    AtomicWriter w(path);
+    if (!w.ok()) return "cannot create adapter init file";
+    w.write(mb.data(), meta);
+    static const uint8_t zeros[64] = {0};
+    std::vector<float> buf;
+    for (size_t i = 0; i < plan.adapter.size(); i++) {
+        const TInfo & t = plan.adapter[i];
+        uint64_t want = gguf_get_tensor_offset(g, (int64_t)i);
+        uint64_t have = w.written() - meta;
+        while (have < want) { size_t n = (size_t)std::min<uint64_t>(sizeof(zeros), want - have); w.write(zeros, n); have += n; }
+        buf.assign((size_t)t.nelem, 0.f);
+        if (i % 2 == 0) {  // lora_a
+            SplitMix64 rng(((uint64_t)c.seed << 20) ^ (0xA5A5ull + i * 0x9E3779B97F4A7C15ull));
+            const double bound = 1.0 / std::sqrt((double)t.ne[0]);
+            for (auto & v : buf) v = (float)(((double)(rng.next() >> 40) / 16777216.0 * 2.0 - 1.0) * bound);
+        }
+        if (!w.write(buf.data(), buf.size() * 4)) return "write failed (disk full?)";
+    }
+    if (!w.commit()) return "cannot finalize adapter init file";
+    return "";
+}
+
 }  // namespace
 
 // ---- public: estimate --------------------------------------------------------------------------------------------------
@@ -711,6 +799,8 @@ hag_status hag_train_estimate(const char * base_gguf_path, const hag_train_param
     j.kv("trainable_tensors", p.n_train_tensors);
     j.kv("trainable_params", p.p_train);
     j.kv("first_trainable_layer", p.first_layer);
+    j.kv("lora", p.lora);
+    if (p.lora) { j.kv("lora_rank", p.lora_rank); j.kv("adapted_matrices", (int)p.adapter_base.size()); }
     j.kv("tied_embeddings", p.tied);
     j.kv("train_embeddings_effective", p.emb_effective);
     j.kv("working_copy_needed", p.needs_working_copy);
@@ -742,7 +832,7 @@ struct Loaded {
 };
 
 static std::string write_ckpt(const std::string & dir, uint64_t step, const std::string & fingerprint, uint64_t next_epoch, uint64_t next_k,
-                              ggml_opt_context_t opt, llama_model * model, const std::vector<TInfo> & trainable,
+                              ggml_opt_context_t opt, const std::function<ggml_tensor *(const std::string &)> & lookup, const std::vector<TInfo> & trainable,
                               bool has_tf, double tf, double tl, bool has_vf, double vf, bool has_vl, double vl, Manifest & mf,
                               std::string & out_file) {
     // optimizer state slots by param name
@@ -777,7 +867,7 @@ static std::string write_ckpt(const std::string & dir, uint64_t step, const std:
     w.write(hdr.data(), hdr.size());
     std::vector<float> buf;
     for (const TInfo & t : trainable) {
-        ggml_tensor * mt = llama_model_tensor_by_name(model, t.name.c_str());
+        ggml_tensor * mt = lookup(t.name);
         if (!mt) return "trainable tensor vanished";
         buf.resize((size_t)t.nelem);
         ggml_backend_tensor_get(mt, buf.data(), 0, (size_t)t.nelem * 4);
@@ -883,9 +973,9 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     {
         Sha256 f;
         char b2[512];
-        snprintf(b2, sizeof(b2), "HAGRUN|algo=%u|api=%d|base=%s|text=%s|tok=%s|n_ctx=%d|accum=%d|epochs=%d|lr=%.9g|val=%.9g|seed=%u|thr=%d|last=%d|emb=%d|S=%zu|",
+        snprintf(b2, sizeof(b2), "HAGRUN|algo=%u|api=%d|base=%s|text=%s|tok=%s|n_ctx=%d|accum=%d|epochs=%d|lr=%.9g|val=%.9g|seed=%u|thr=%d|last=%d|emb=%d|S=%zu|lora=%d,%.9g|",
                  kAlgoVersion, HAG_ENGINE_API_VERSION, base_sha.c_str(), ds.text_sha.c_str(), ds.tokens_sha.c_str(), n_ctx, accum, c.epochs,
-                 (double)c.lr, (double)c.val_fraction, c.seed, c.threads, c.last_layers, c.train_emb ? 1 : 0, S_used);
+                 (double)c.lr, (double)c.val_fraction, c.seed, c.threads, c.last_layers, c.train_emb ? 1 : 0, S_used, c.lora_rank, (double)c.lora_alpha);
         f.update(b2, strlen(b2));
         fingerprint = f.final_hex();
     }
@@ -904,7 +994,11 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     std::string load_path = base_path;
     std::unordered_set<std::string> train_names;
     std::vector<TInfo> trainable;
-    for (const TInfo & t : b.t) if (t.trainable) { train_names.insert(t.name); trainable.push_back(t); }
+    if (plan.lora) {
+        for (const TInfo & t : plan.adapter) { train_names.insert(t.name); trainable.push_back(t); }
+    } else {
+        for (const TInfo & t : b.t) if (t.trainable) { train_names.insert(t.name); trainable.push_back(t); }
+    }
     if (plan.needs_working_copy) {
         Sha256 k;
         k.update(base_sha.data(), base_sha.size());
@@ -923,14 +1017,26 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     {
         llama_model_params mp = llama_model_default_params();
         mp.n_gpu_layers = 0;
-        mp.load_mode = LLAMA_LOAD_MODE_NONE;   // private, writable weights (no mmap)
+        // full/partial tuning needs private writable weights (no mmap); with LoRA the base is frozen and can stay mmap'd
+        mp.load_mode = plan.lora ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
+        mp.use_extra_bufts = false;   // no weight repacking: backward needs plain-layout quantized weights (OUT_PROD)
         clear_native_error();
         L.model = llama_model_load_from_file(load_path.c_str(), mp);
         if (!L.model) return make_status(HAG_ERR_BAD_MODEL, "cannot load model for training: %s", last_native_error().c_str());
     }
-    for (const TInfo & t : trainable) {
-        ggml_tensor * mt = llama_model_tensor_by_name(L.model, t.name.c_str());
-        if (!mt || mt->type != GGML_TYPE_F32) return make_status(HAG_ERR_INTERNAL, "tensor %s is not F32 in the working model", t.name.c_str());
+    llama_adapter_lora * adapter = nullptr;
+    struct AdapterGuard { llama_adapter_lora *& a; ~AdapterGuard() { if (a) llama_adapter_lora_free(a); } } adapter_guard{adapter};
+    std::function<ggml_tensor *(const std::string &)> lookup = [&](const std::string & name) -> ggml_tensor * {
+        if (!plan.lora) return llama_model_tensor_by_name(L.model, name.c_str());
+        size_t dot = name.rfind('.');
+        if (dot == std::string::npos || !adapter) return nullptr;
+        return llama_adapter_lora_tensor(adapter, name.substr(0, dot).c_str(), name.compare(dot, 7, ".lora_a") == 0 ? 0 : 1);
+    };
+    if (!plan.lora) {
+        for (const TInfo & t : trainable) {
+            ggml_tensor * mt = lookup(t.name);
+            if (!mt || mt->type != GGML_TYPE_F32) return make_status(HAG_ERR_INTERNAL, "tensor %s is not F32 in the working model", t.name.c_str());
+        }
     }
     {
         llama_context_params cp = llama_context_default_params();
@@ -942,6 +1048,21 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
         clear_native_error();
         L.ctx = llama_init_from_model(L.model, cp);
         if (!L.ctx) return make_status(HAG_ERR_OOM, "cannot create training context: %s", last_native_error().c_str());
+    }
+    if (plan.lora) {
+        std::string init_path = join_path(X.work_dir, "lora_init.gguf");
+        err = write_lora_init(init_path, b, plan, c);
+        if (!err.empty()) return make_status(HAG_ERR_IO, "%s", err.c_str());
+        clear_native_error();
+        adapter = llama_adapter_lora_init(L.model, init_path.c_str());
+        if (!adapter) return make_status(HAG_ERR_INTERNAL, "cannot attach LoRA adapter: %s", last_native_error().c_str());
+        float one = 1.0f;
+        if (llama_set_adapters_lora(L.ctx, &adapter, 1, &one) != 0) return make_status(HAG_ERR_INTERNAL, "cannot activate LoRA adapter");
+        for (const TInfo & t : trainable) {
+            ggml_tensor * mt = lookup(t.name);
+            if (!mt || mt->type != GGML_TYPE_F32) return make_status(HAG_ERR_INTERNAL, "adapter tensor %s missing", t.name.c_str());
+        }
+        X.log.line("LoRA: rank %d alpha %.3g on %zu matrices (%" PRIu64 " trainable params), base frozen and mmap'd", c.lora_rank, (double)c.lora_alpha, plan.adapter_base.size(), plan.p_train);
     }
     LrState lrs{c.lr};
     {
@@ -996,7 +1117,7 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
             std::vector<float> tmp;
             for (size_t i = 0; okr && i < m.tensors.size(); i++) {
                 tmp.resize(m.tensors[i].n);
-                ggml_tensor * mt = llama_model_tensor_by_name(L.model, m.tensors[i].name.c_str());
+                ggml_tensor * mt = lookup(m.tensors[i].name);
                 okr = mt && fseek64(f, (int64_t)m.tensors[i].off, SEEK_SET) == 0 && fread(tmp.data(), 4, tmp.size(), f) == tmp.size();
                 if (okr) ggml_backend_tensor_set(mt, tmp.data(), 0, tmp.size() * 4);
             }
@@ -1045,7 +1166,7 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     auto save_ckpt = [&](uint64_t next_epoch, uint64_t next_k) -> std::string {
         X.hk.emit(HAG_PHASE_SAVE, (int)next_epoch, (int)step, (int64_t)step * accum, tl, vl);
         std::string fn;
-        std::string e = write_ckpt(X.work_dir, step, fingerprint, next_epoch, next_k, opt, L.model, trainable, has_tf, tf, tl, has_vf, vf, has_vl, vl, mf, fn);
+        std::string e = write_ckpt(X.work_dir, step, fingerprint, next_epoch, next_k, opt, lookup, trainable, has_tf, tf, tl, has_vf, vf, has_vl, vl, mf, fn);
         if (e.empty()) X.log.line("checkpoint written: %s", fn.c_str());
         else X.log.line("checkpoint FAILED: %s", e.c_str());
         return e;
@@ -1135,7 +1256,19 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
 
     gguf_context * pg = gguf_init_empty();
     struct PG { gguf_context * g; ~PG() { gguf_free(g); } } pgg{pg};
-    gguf_set_val_str(pg, "general.architecture", HAG_PATCH_ARCH);
+    if (plan.lora) {   // a standard llama.cpp LoRA adapter file that additionally carries the hag.* provenance keys
+        gguf_set_val_str(pg, "general.architecture", b.arch.c_str());
+        gguf_set_val_str(pg, "general.type", "adapter");
+        gguf_set_val_str(pg, "adapter.type", "lora");
+        gguf_set_val_f32(pg, "adapter.lora.alpha", c.lora_alpha);
+        gguf_set_val_str(pg, HAG_KEY_KIND, "lora");
+        gguf_set_val_u32(pg, "hag.train.lora_rank", (uint32_t)c.lora_rank);
+        gguf_set_val_f32(pg, "hag.train.lora_alpha", c.lora_alpha);
+        gguf_set_val_u32(pg, "hag.train.lora_matrices", (uint32_t)plan.adapter_base.size());
+    } else {
+        gguf_set_val_str(pg, "general.architecture", HAG_PATCH_ARCH);
+        gguf_set_val_str(pg, HAG_KEY_KIND, "replace");
+    }
     gguf_set_val_str(pg, "general.name", "hag specialist patch");
     gguf_set_val_u32(pg, HAG_KEY_VERSION, HAG_PATCH_FORMAT_VERSION);
     gguf_set_val_str(pg, HAG_KEY_BASE_ARCH, b.arch.c_str());
@@ -1192,7 +1325,7 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     std::vector<float> fbuf;
     std::vector<uint8_t> qbuf;
     auto tensor_bytes = [&](const TInfo & t, const uint8_t *& ptr, size_t & n) -> bool {
-        ggml_tensor * mt = llama_model_tensor_by_name(L.model, t.name.c_str());
+        ggml_tensor * mt = lookup(t.name);
         if (!mt) return false;
         fbuf.resize((size_t)t.nelem);
         ggml_backend_tensor_get(mt, fbuf.data(), 0, (size_t)t.nelem * 4);
@@ -1241,7 +1374,7 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
     }
     // Best effort: what does deploying in the BASE tensor type cost? (quantized bases only; the patch is already committed)
     double vl_deploy = vl;
-    if (plan.base_quantized && !ds.val_win.empty()) {
+    if (plan.base_quantized && !plan.lora && !ds.val_win.empty()) {
         try {
             llama_context_params cp = llama_context_default_params();
             cp.n_ctx = (uint32_t)n_ctx; cp.n_batch = (uint32_t)n_ctx; cp.n_ubatch = (uint32_t)n_ctx;
@@ -1277,7 +1410,7 @@ hag_status hag_train(const char * base_path, const char * const * texts, int n_t
                 std::vector<uint8_t> qq;
                 for (const TInfo & t : trainable) {
                     if (t.type == GGML_TYPE_F32) continue;
-                    ggml_tensor * mt = llama_model_tensor_by_name(L.model, t.name.c_str());
+                    ggml_tensor * mt = lookup(t.name);
                     q32.resize((size_t)t.nelem);
                     ggml_backend_tensor_get(mt, q32.data(), 0, (size_t)t.nelem * 4);
                     qq.resize(t.nbytes);
