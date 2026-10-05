@@ -21,7 +21,9 @@ object Evidence {
     const val PRIMARY_REGISTRY = "primary_text_read"
     const val OWNER_TEXT = "owner_reviewed_text"
     const val OWNER_ATTESTED_DISALLOWED = "owner_attested"
-    val VERIFIED_LEVELS = setOf(PRIMARY_REGISTRY, OWNER_TEXT)
+    /** The catalog-refresh CI job fetched the license text, it is byte-identical to a canonical reference text, and the model card agrees. */
+    const val CI_CANONICAL = "ci_canonical_text_match"
+    val VERIFIED_LEVELS = setOf(PRIMARY_REGISTRY, OWNER_TEXT, CI_CANONICAL)
 }
 
 object LicenseCodes {
@@ -93,6 +95,8 @@ private data class PendingFetch(val modelId: String, val url: String, val fetche
 
 class LicenseService(
     private val dir: File, private val registry: () -> Map<String, RegEntry>, private val http: Http, private val clock: Clock,
+    /** CI-derived license evidence for an entry (see [ArtifactCatalog.licenseEvidence]); consulted after DISALLOWED and the owner's attestation. */
+    private val ciEvidence: (RegEntry) -> LicenseInfo? = { null },
 ) {
     private val storeFile = File(dir, "licenses.json")
     private val textDir = File(dir, "license_texts")
@@ -170,6 +174,8 @@ class LicenseService(
                     att.permissions, att.attributionRequired, att.disallowedReason ?: "Owner attested that fine-tuning/adapters are not permitted")
             }
         }
+        val ci = ciEvidence(e)
+        if (ci != null && LicenseGate.evidenceProblems(ci).isEmpty()) return ci   // fail closed: incomplete CI evidence is ignored
         val primary = v.evidenceLevel.startsWith("primary_")
         val level = when { primary -> Evidence.PRIMARY_REGISTRY; v.evidenceLevel == "secondary_source_only" -> Evidence.SECONDARY; else -> Evidence.NONE }
         val regInfo = LicenseInfo(

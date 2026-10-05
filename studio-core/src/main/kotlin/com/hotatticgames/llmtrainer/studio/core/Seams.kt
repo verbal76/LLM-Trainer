@@ -44,7 +44,7 @@ class ThreadTaskRunner : TaskRunner {
 object InlineTaskRunner : TaskRunner { override fun submit(task: Runnable) = task.run() }
 
 class HttpException(val kind: Kind, message: String, val status: Int? = null) : IOException(message) {
-    enum class Kind { NOT_HTTPS, NETWORK, TIMEOUT, STATUS, TOO_LARGE, CANCELLED, PROTOCOL }
+    enum class Kind { NOT_HTTPS, NETWORK, TIMEOUT, STATUS, TOO_LARGE, CANCELLED, PROTOCOL, /** Writing the local file failed (disk full, I/O error): not the network's fault. */ STORAGE }
 }
 
 class HttpBytes(val finalUrl: String, val status: Int, val bytes: ByteArray, val contentType: String?)
@@ -159,7 +159,8 @@ class JavaHttp(
                             if (cancelled()) throw HttpException(HttpException.Kind.CANCELLED, "Cancelled")
                             val n = ins.read(buf)
                             if (n < 0) break
-                            raf.write(buf, 0, n)
+                            // A failing WRITE (disk full, I/O error) must not be reported as a network error.
+                            try { raf.write(buf, 0, n) } catch (e: IOException) { throw HttpException(HttpException.Kind.STORAGE, "Could not write the model file: ${e.message}") }
                             done += n
                             if (done > maxBytes) throw HttpException(HttpException.Kind.TOO_LARGE, "Download is larger than allowed")
                             onProgress(done, total)
