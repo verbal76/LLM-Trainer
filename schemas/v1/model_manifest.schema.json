@@ -46,6 +46,24 @@
           "title": "License Id",
           "type": "string"
         },
+        "license_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "VERIFIED",
+                "UNVERIFIED",
+                "CONDITIONAL",
+                "RESTRICTED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License State"
+        },
         "model_family": {
           "title": "Model Family",
           "type": "string"
@@ -247,6 +265,11 @@
       "title": "Known Limitations",
       "type": "array"
     },
+    "local_experiment": {
+      "default": false,
+      "title": "Local Experiment",
+      "type": "boolean"
+    },
     "quantization": {
       "anyOf": [
         {
@@ -295,6 +318,19 @@
       "additionalProperties": true,
       "title": "Training Config",
       "type": "object"
+    },
+    "training_config_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Training Config Hash"
     },
     "training_run_hash": {
       "pattern": "^sha256:[0-9a-f]{64}$",

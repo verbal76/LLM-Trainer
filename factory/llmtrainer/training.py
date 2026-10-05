@@ -31,6 +31,14 @@ class ExperimentConfig(Base):
     gpu_tflops_fp16: float = 100.0
     assumed_mfu: float = 0.3
     gradient_checkpointing: bool = True
+    # Real LoRA/QLoRA settings (ignored by the stub trainer).
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    max_seq_len: int = 1024
+    grad_accum_steps: int = 4
+    target_modules: list[str] = ["all-linear"]
+    warmup_ratio: float = 0.03
+    bf16: bool = True
 
 
 def estimate_resources(cfg: ExperimentConfig, train_tokens: int) -> ResourceEstimate:

@@ -91,6 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("export-schemas", help="write JSON Schemas")
     s.add_argument("out_dir")
+    from .specialize import cli_ext
+
+    cli_ext.register(sub)
     return p
 
 
@@ -98,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
-    except (pl.WorkspaceError, LicenseGateError, KeyError, ValueError, FileNotFoundError) as e:
+    except (pl.WorkspaceError, LicenseGateError, RuntimeError, KeyError, ValueError, FileNotFoundError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
@@ -156,6 +159,10 @@ def _dispatch(a) -> int:
     elif a.cmd == "estimate-resources":
         cfg = ExperimentConfig(base_model_id="n/a", method=a.method, base_params_b=a.params_b, context_tokens=a.context, epochs=a.epochs)
         _print(estimate_resources(cfg, a.tokens).model_dump())
+    elif a.cmd in ("train", "package-specialist"):
+        from .specialize import cli_ext
+
+        return cli_ext.dispatch(a)
     elif a.cmd == "export-schemas":
         _print([str(p) for p in schema_export.write_all(a.out_dir)])
     return 0
