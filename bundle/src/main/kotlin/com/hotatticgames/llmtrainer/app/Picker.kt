@@ -112,6 +112,8 @@ object StudioTestHooks {
     @Volatile private var names: Array<String>? = null
     @Volatile private var contents: Array<String>? = null
     @Volatile private var sink: OutputStream? = null
+    @Volatile private var licName: String? = null
+    @Volatile private var licBytes: ByteArray? = null
 
     /** Replace the next document pick(s) with these in-memory text files. */
     @JvmStatic fun supplySources(fileNames: Array<String>, fileContents: Array<String>) {
@@ -121,7 +123,15 @@ object StudioTestHooks {
     /** Replace the next export destination (ACTION_CREATE_DOCUMENT) with this stream. */
     @JvmStatic fun supplyExportSink(out: OutputStream?) { sink = out }
 
-    @JvmStatic fun clear() { names = null; contents = null; sink = null }
+    /** Replace the next license-file pick (license evidence screen, "import a license file"). */
+    @JvmStatic fun supplyLicenseFile(fileName: String, text: String) { licName = fileName; licBytes = text.toByteArray(Charsets.UTF_8) }
+
+    @JvmStatic fun clear() { names = null; contents = null; sink = null; licName = null; licBytes = null }
+
+    internal fun licenseFile(): Pair<String, ByteArray>? {
+        val n = licName; val b = licBytes
+        return if (n != null && b != null) Pair(n, b) else null
+    }
 
     internal fun sources(): List<SourceInput>? {
         val n = names ?: return null

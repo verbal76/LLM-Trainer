@@ -145,6 +145,7 @@ class StudioUiFlowTest {
     private fun waitText(fragment: String) = waitUntil("text containing '$fragment'") { if (visibleText().contains(fragment, ignoreCase = true)) true else null }
 
     private fun click(tag: String) {
+        // (views with GONE visibility are still clickable programmatically, e.g. the banner)
         waitUntil("clickable '$tag'") {
             var done = false
             instr.runOnMainSync { val v = walk(decor()) { it.tag == tag }; if (v != null) { v.performClick(); done = true } }
@@ -215,7 +216,7 @@ class StudioUiFlowTest {
         waitScreen("HUB")
         waitText("Test Mechanic")
 
-        // Device & recommendations -> catalog -> model -> select base model.
+        // Device & recommendations -> catalog -> model -> select base model (real registry: all UNVERIFIED or DISALLOWED).
         click("btn:hub-models")
         waitScreen("DEVICE")
         waitTagPrefix("profile:")
@@ -223,28 +224,35 @@ class StudioUiFlowTest {
         click("btn:open-catalog")
         waitScreen("CATALOG")
         waitTagPrefix("model:")
-        clickPrefix("model:")
+        // A DISALLOWED model must be refused cleanly with an error banner (if the registry has one).
+        val disallowed = cardTagWithText("model:", "DISALLOWS")
+        if (disallowed != null) {
+            click(disallowed)
+            waitScreen("MODEL")
+            click("banner") // dismiss any stale banner so the next one is the answer to this tap
+            click("btn:select-base-model")
+            waitUntil("blocked banner") { bannerText()?.takeIf { it.contains("Blocked") || it.contains("not allow", true) || it.contains("disallow", true) } }
+            click("btn:back")
+            waitScreen("CATALOG")
+        }
+        click(waitUntil("an UNVERIFIED model card") { cardTagWithText("model:", "UNVERIFIED") })
         waitScreen("MODEL")
         waitTag("license-card")
         waitTag("select-card")
         click("btn:select-base-model")
         waitScreen("HUB")
 
-        // Add a source through the injectable test hook (the real picker stays the default path).
+        // Add sources through the injectable test hook (the real picker stays the default path).
         click("btn:hub-sources")
         waitScreen("SOURCES")
         click("rights:OWNER_AUTHORED")
-        val body = (1..40).joinToString("\n\n") { i ->
-            "Section $i. The carburettor float level must be checked whenever the bowl is removed. " +
-                "Step $i: inspect the needle valve seat for wear, clean the jets with compressed air, and verify idle mixture " +
-                "after reassembly. Record the observation number $i in the service log before continuing."
-        }
-        hooks("supplySources", arrayOf("workshop-manual.txt", "field-notes.md"), arrayOf(body, "# Notes\n\n" + body.reversed().take(1500)))
+        val names = arrayOf("carburettor.txt", "ignition.md", "brakes.txt", "suspension.txt")
+        hooks("supplySources", names, Array(names.size) { d -> manual(d) })
         click("btn:add-sources")
         waitTag("ingest-report")
         waitText("ingested")
 
-        // Dataset build and review.
+        // Dataset build, review, approve.
         click("btn:to-dataset")
         waitScreen("DATASET")
         click("btn:build-dataset")
@@ -275,22 +283,96 @@ class StudioUiFlowTest {
         click("btn:back"); waitScreen("SOURCES")
         click("btn:back"); waitScreen("HUB")
 
-        // Method screen: honest options, then choose a training method (desktop).
+        // Method screen: honest options. The desktop training method is unavailable while the license is UNVERIFIED.
         click("btn:stage:METHOD")
         waitScreen("METHOD")
         waitText("does not train models")
-        waitTagPrefix("method:")
+        waitTag("method:adapter-training-desktop")
         waitText("NOT TRAINING")
+        waitText("NOT AVAILABLE")
+        waitText("UNVERIFIED")
+        click("btn:back"); waitScreen("HUB")
+
+        // NEGATIVE: the training job export is refused (fail-closed) and writes nothing.
+        val blockedSink = ByteArrayOutputStream()
+        hooks("supplyExportSink", blockedSink)
+        click("btn:hub-packages")
+        waitScreen("TRAINING")
+        click("banner")
+        click("btn:export-job")
+        waitUntil("blocked export banner") { bannerText()?.takeIf { it.contains("Blocked") } }
+        assertEquals("blocked export must write 0 bytes", 0, blockedSink.size())
+        click("btn:back"); waitScreen("HUB")
+
+        // License evidence flow: import the license text (hook), owner attests the uses -> VERIFIED.
+        click("btn:hub-license")
+        waitScreen("LICENSE")
+        hooks("supplyLicenseFile", "LICENSE.txt", "Test license text for the instrumented flow.\nYou may use, modify and fine-tune this model, and train adapters.\n")
+        click("btn:license-import")
+        waitTag("license-text")
+        waitTag("btn:attest")
+        click("attest:FINE_TUNE")
+        click("attest:ADAPTER")
+        click("attest:read")
+        click("btn:attest")
+        waitText("LICENSE VERIFIED")
+        click("btn:back"); waitScreen("HUB")
+
+        // Now the desktop training method is available; choose it and export the job package.
+        click("btn:stage:METHOD")
+        waitScreen("METHOD")
         click("btn:method:adapter-training-desktop")
         waitScreen("HUB")
-
-        // Training job export to a temp stream (stands in for the SAF document).
         val sink = ByteArrayOutputStream()
         hooks("supplyExportSink", sink)
-        click("btn:stage:TRAINING_PACKAGE")
+        click("btn:hub-packages")
         waitScreen("TRAINING")
         click("btn:export-job")
         waitTag("export-result")
         assertTrue("training job package bytes were written", sink.size() > 0)
+    }
+
+    private fun bannerText(): String? {
+        var t: String? = null
+        instr.runOnMainSync {
+            val v = walk(decor()) { it.tag == "banner" } as? TextView
+            if (v != null && v.visibility == View.VISIBLE) t = v.text.toString()
+        }
+        return t
+    }
+
+    /** Tag of the first view whose tag starts with [prefix] and whose descendant text contains [needle]. */
+    private fun cardTagWithText(prefix: String, needle: String): String? {
+        var found: String? = null
+        instr.runOnMainSync {
+            walk(decor()) { v ->
+                val t = v.tag as? String
+                if (found == null && t != null && t.startsWith(prefix)) {
+                    var text = ""
+                    walk(v) { c -> if (c is TextView) text += c.text.toString() + "\n"; false }
+                    if (text.contains(needle)) found = t
+                }
+                false
+            }
+        }
+        return found
+    }
+
+    /** Distinct pseudo-random prose per document so near-duplicate detection does not collapse the corpus. */
+    private fun manual(doc: Int): String {
+        val vocab = ("float needle valve jet bowl choke piston spring gasket bearing sprocket chain caliper rotor pad fluid hose clamp bolt " +
+            "torque socket gauge shim cam lobe tappet rocker coil plug lead battery stator regulator fuse relay switch harness fork seal " +
+            "damper preload sag swingarm linkage bushing axle spoke rim tyre tube bead valve stem inspect measure replace tighten loosen " +
+            "clean lubricate adjust verify record remove install align bleed flush torquing seating sealing wear crack leak noise heat").split(" ")
+        var seed = 1234567L + doc * 7919L
+        fun next(): Int { seed = (seed * 6364136223846793005L + 1442695040888963407L); return ((seed ushr 33) % vocab.size).toInt() }
+        val sb = StringBuilder("# Workshop manual part $doc\n\n")
+        for (sec in 1..8) {
+            sb.append("## Section $doc.$sec\n\n")
+            repeat(3) {
+                sb.append((1..60).joinToString(" ") { vocab[next()] }.replaceFirstChar { it.uppercase() }).append(".\n\n")
+            }
+        }
+        return sb.toString()
     }
 }

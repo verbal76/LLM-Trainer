@@ -202,6 +202,10 @@ internal fun hubScreen(c: Ctl, pid: String?, col: LinearLayout) {
         opt.addView(u.badge("NOT AVAILABLE YET", u.muted))
         opt.addView(u.tv("Needs an on-device inference runtime, which ships in a future app update. Nothing is claimed here.", 13f, u.muted, topDp = 4))
         col.addView(opt)
+        if (p.baseModelId != null) col.addView(u.button("Base model license evidence", "btn:hub-license", false) { c.go(Route(Kind.LICENSE, pid, p.baseModelId)) })
+        col.addView(u.button("Packages and exports (training job, reference)", "btn:hub-packages", false) { c.go(Route(Kind.TRAINING, pid)) })
+        col.addView(u.button("Evaluation", "btn:hub-eval", false) { c.go(Route(Kind.EVAL, pid)) })
+        col.addView(u.button("Specialist package", "btn:hub-specialist", false) { c.go(Route(Kind.SPECIALIST, pid)) })
         col.addView(u.button("Sources", "btn:hub-sources", false) { c.go(Route(Kind.SOURCES, pid)) })
         col.addView(u.button("Dataset", "btn:hub-dataset", false) { c.go(Route(Kind.DATASET, pid)) })
         col.addView(u.button("Model catalog and recommendations", "btn:hub-models", false) { c.go(Route(Kind.DEVICE, pid)) })
@@ -368,7 +372,10 @@ internal fun licenseScreen(c: Ctl, mid: String?, col: LinearLayout) {
             c.call({ c.studio.fetchLicenseText(mid) }) { f -> fetchCache[mid] = f; showFetch(c, mid, f, box) }
         })
         col.addView(u.button("Import a license file instead", "btn:license-import", false) {
-            c.pick(Pickers.openOne()) { data ->
+            val hook = StudioTestHooks.licenseFile()
+            if (hook != null) {
+                c.call({ c.studio.importLicenseText(mid, hook.first, java.io.ByteArrayInputStream(hook.second)) }, sticky = true) { f -> fetchCache[mid] = f; showFetch(c, mid, f, box) }
+            } else c.pick(Pickers.openOne()) { data ->
                 val uri = Pickers.uris(data).firstOrNull()
                 if (uri != null) {
                     val cr = c.contentResolver()
