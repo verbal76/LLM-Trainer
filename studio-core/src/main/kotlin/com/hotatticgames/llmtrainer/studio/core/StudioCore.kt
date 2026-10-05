@@ -194,6 +194,7 @@ class StudioCore(
         val p = synchronized(lock) { projects[id.value] } ?: return err(StudioError.NotFound("project ${id.value}"))
         return synchronized(p.monitor) {
             try { f(p) } catch (e: IOException) { err(io(e)) }
+            catch (e: RuntimeException) { err(StudioError.Io("Internal error (${e.javaClass.simpleName}): ${e.message}")) }   // contract: calls never throw
         }
     }
 

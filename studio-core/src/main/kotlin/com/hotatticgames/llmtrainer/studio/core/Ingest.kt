@@ -154,7 +154,8 @@ class SourceStore(private val dir: File, private val problems: MutableList<Strin
         }
     }
 
-    @Synchronized fun all(): List<SourceDoc> = docs.values.toList()
+    /** Oldest first (ingest time, then id): the same order before and after a restart. */
+    @Synchronized fun all(): List<SourceDoc> = docs.values.sortedWith(compareBy({ it.ingestedAt }, { it.sourceId }))
     @Synchronized fun get(id: String): SourceDoc? = docs[id]
     fun dirOf(id: String) = File(dir, id)
 
