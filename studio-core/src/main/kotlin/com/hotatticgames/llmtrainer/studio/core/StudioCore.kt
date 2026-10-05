@@ -241,6 +241,9 @@ class StudioCore(
                 "This phone only prepares the training job package. Training happens on a desktop/GPU via 'llmtrainer import-job'; nothing is trained on this device."),
             MethodOption(MethodIds.ADAPTER_ON_DEVICE, "Adapter training on this device", true, RunLocation.DEVICE, false,
                 "This app version has no training runtime (nativeRuntimeId $rt); on-device training needs a future app update.",
+                "Not available. Nothing is claimed to train on the phone."),
+            MethodOption(MethodIds.PARTIAL_ON_DEVICE, "Fine-tune the last layers on this device", true, RunLocation.DEVICE, false,
+                "This app version has no training runtime (nativeRuntimeId $rt); on-device training needs a future app update.",
                 "Not available. Nothing is claimed to train on the phone."))
     }
 

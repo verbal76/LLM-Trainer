@@ -110,6 +110,68 @@ interface Studio {
     /** Validates and describes an exported package without installing it into a project. */
     fun importSpecialistPackage(input: InputStream): StudioResult<SpecialistPackageView>
 
+    // =================================================================================================================
+    // v2 (phone-first): chat, local training, local evaluation, A/B. Additive; see docs/studio/V2_API.md.
+    // Defaults return an honest NOT_SUPPORTED so older implementations keep compiling; StudioCore and FakeStudio override all.
+    // =================================================================================================================
+
+    // ---- Engine & installed models ---------------------------------------------------------------------------
+    fun engineStatus(): EngineStatus = EngineStatus("none", false, V2_UNSUPPORTED, false, V2_UNSUPPORTED)
+    fun installedModels(): List<InstalledModel> = emptyList()
+    fun projectModelState(projectId: ProjectId): StudioResult<ProjectModelState> = v2Unsupported()
+
+    // ---- Chat (talk to the base model or the specialist) ----------------------------------------------------
+    fun createChat(projectId: ProjectId, target: ChatTarget, specialistId: String? = null, options: ChatOptions = ChatOptions()): StudioResult<ChatSessionInfo> = v2Unsupported()
+    fun listChats(projectId: ProjectId): List<ChatSessionInfo> = emptyList()
+    fun chatHistory(chatId: String): StudioResult<List<ChatMessageRecord>> = v2Unsupported()
+    fun deleteChat(chatId: String): StudioResult<Unit> = v2Unsupported()
+    /**
+     * Blocking: adds the user message, generates the reply and returns it. `onToken` receives streamed pieces on the calling thread.
+     * Cancelling keeps the partial answer (interrupted=true). Fails with Conflict while training runs (one engine, no RAM contention).
+     */
+    fun sendMessage(chatId: String, text: String, cancel: CancelToken = CancelToken(), onToken: (String) -> Unit = {}): StudioResult<ChatMessageRecord> = v2Unsupported()
+
+    // ---- Local training --------------------------------------------------------------------------------------
+    fun localTrainingPlan(projectId: ProjectId): StudioResult<LocalTrainingPlan> = v2Unsupported()
+    /** Starts a background run (needs an approved dataset, passing safety gates and `confirmed`). Never silently reroutes to desktop. */
+    fun startLocalTraining(projectId: ProjectId, settings: TrainingSettings, confirmed: Boolean): StudioResult<TrainingRun> = v2Unsupported()
+    fun trainingRuns(projectId: ProjectId): List<TrainingRun> = emptyList()
+    fun trainingRun(runId: String): StudioResult<TrainingRun> = v2Unsupported()
+    /** Stops at the latest checkpoint; resumable. */
+    fun pauseTraining(runId: String): StudioResult<TrainingRun> = v2Unsupported()
+    /** Stops and discards the run's checkpoints; not resumable. */
+    fun cancelTraining(runId: String): StudioResult<TrainingRun> = v2Unsupported()
+    /** Resumes a PAUSED run (also what an interrupted/process-killed run offers). Gates are re-checked. */
+    fun resumeTraining(runId: String): StudioResult<TrainingRun> = v2Unsupported()
+
+    // ---- Specialist artifact registry -------------------------------------------------------------------------
+    fun specialists(projectId: ProjectId): List<SpecialistInfo> = emptyList()
+    /** Re-hashes the patch, compares base hash, and (when the engine is available) reloads it. */
+    fun verifySpecialist(specialistId: String): StudioResult<SpecialistInfo> = v2Unsupported()
+    /** `specialistId == null` clears the selection (the project then uses the base model). */
+    fun selectSpecialist(projectId: ProjectId, specialistId: String?): StudioResult<List<SpecialistInfo>> = v2Unsupported()
+    fun deleteSpecialist(specialistId: String): StudioResult<Unit> = v2Unsupported()
+    /** Portable zip: patch + manifest (base identity/hash, license state, dataset hash, config, metrics) + checksums. Never contains the base model. */
+    fun exportSpecialistPatch(specialistId: String, out: OutputStream): StudioResult<ExportedPackage> = v2Unsupported()
+
+    // ---- Local evaluation (base vs specialist on the TEST split, on this phone) --------------------------------
+    fun startLocalEvaluation(projectId: ProjectId, specialistId: String, options: LocalEvalOptions = LocalEvalOptions()): StudioResult<LocalEvaluation> = v2Unsupported()
+    fun localEvaluations(projectId: ProjectId): List<LocalEvaluation> = emptyList()
+    fun localEvaluation(evalId: String): StudioResult<LocalEvaluation> = v2Unsupported()
+    fun cancelLocalEvaluation(evalId: String): StudioResult<LocalEvaluation> = v2Unsupported()
+
+    // ---- A/B: same question, base and specialist, side by side -------------------------------------------------
+    /** Blocking; runs base then specialist sequentially (one model resident at a time). `onToken(side, piece)` streams both. */
+    fun compareAB(projectId: ProjectId, specialistId: String, prompt: String, options: ABOptions = ABOptions(),
+                  cancel: CancelToken = CancelToken(), onToken: (ChatTarget, String) -> Unit = { _, _ -> }): StudioResult<ABComparison> = v2Unsupported()
+    fun abComparisons(projectId: ProjectId): List<ABComparison> = emptyList()
+    /** Saves (or edits) the note on a comparison; it is kept in the project. */
+    fun saveABNote(projectId: ProjectId, comparisonId: String, note: String): StudioResult<ABComparison> = v2Unsupported()
+    fun deleteAB(projectId: ProjectId, comparisonId: String): StudioResult<Unit> = v2Unsupported()
+
     // ---- Host passthrough ------------------------------------------------------------------------------------
     val host: HostHooks
 }
+
+const val V2_UNSUPPORTED = "This Studio implementation has no phone-first engine support."
+internal fun <T> v2Unsupported(): StudioResult<T> = StudioResult.Err(StudioError.Invalid("NOT_SUPPORTED", V2_UNSUPPORTED))
