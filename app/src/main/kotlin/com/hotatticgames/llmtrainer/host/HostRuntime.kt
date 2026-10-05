@@ -10,8 +10,10 @@ import android.view.View
 import com.hotatticgames.llmtrainer.BuildConfig
 import com.hotatticgames.llmtrainer.hostapi.BundleApp
 import com.hotatticgames.llmtrainer.hostapi.BundleEntry
-import com.hotatticgames.llmtrainer.hostapi.Capabilities
+import com.hotatticgames.hag.runtime.EngineStatus
+import com.hotatticgames.llmtrainer.hostapi.EngineApi
 import com.hotatticgames.llmtrainer.hostapi.HOST_API_LEVEL
+import com.hotatticgames.llmtrainer.hostapi.HostCapabilities
 import com.hotatticgames.llmtrainer.hostapi.HostServices
 import com.hotatticgames.llmtrainer.hostapi.UpdateStatus
 import com.hotatticgames.llmtrainer.ota.BootPlan
@@ -54,20 +56,32 @@ class HostRuntime(
     private val trusted: List<TrustedKey> = listOf(TrustedKey(BuildConfig.OTA_KEY_ID, BuildConfig.OTA_PUBLIC_KEY)),
     private val builtinAssetPath: String = "builtin/llmtrainer-main.hagb",
     private val builtinBundleVersion: Int = BuildConfig.BUILTIN_BUNDLE_VERSION,
+    /** Injectable so "engine unavailable" is testable on any device; default is the real, guarded bring-up. */
+    engineStatusProvider: () -> EngineStatus = { NativeEngine.status },
 ) {
-    val hostInfo = HostInfo(
-        hostVersionCode = BuildConfig.VERSION_CODE,
-        hostVersionName = BuildConfig.VERSION_NAME,
-        hostApiLevel = HOST_API_LEVEL,
-        nativeAbi = BuildConfig.NATIVE_ABI,
-        nativeRuntimeId = BuildConfig.NATIVE_RUNTIME_ID,
-        capabilities = setOf(Capabilities.CORE_V1, Capabilities.DEVICE_SNAPSHOT_V1, Capabilities.UPDATE_CHECK_V1),
-        sdkInt = Build.VERSION.SDK_INT,
-        bundleId = "llmtrainer-main",
-        channel = "stable",
-        builtinBundleVersion = builtinBundleVersion,
-        sourceSha = BuildConfig.GIT_SHA,
-    )
+    // Engine bring-up loads native libraries, so it is lazy and first touched by boot() (a worker thread), never by the
+    // constructor on the main thread: the studio splash must not wait for it.
+    private val engineState: EngineStatus by lazy(engineStatusProvider)
+    private val engineApi: EngineApi? by lazy { (engineState as? EngineStatus.Ready)?.let { EngineAdapter(it.engine) } }
+    private val nativeVersionText: String
+        get() = (engineState as? EngineStatus.Ready)?.version ?: engineState.describe()
+
+    /** Capabilities advertise the engine ONLY if it actually initialised on this device. */
+    val hostInfo: HostInfo by lazy {
+        HostInfo(
+            hostVersionCode = BuildConfig.VERSION_CODE,
+            hostVersionName = BuildConfig.VERSION_NAME,
+            hostApiLevel = HOST_API_LEVEL,
+            nativeAbi = BuildConfig.NATIVE_ABI,
+            nativeRuntimeId = (engineState as? EngineStatus.Ready)?.version ?: BuildConfig.NATIVE_RUNTIME_ID,
+            capabilities = HostCapabilities.advertised(engineApi != null),
+            sdkInt = Build.VERSION.SDK_INT,
+            bundleId = "llmtrainer-main",
+            channel = "stable",
+            builtinBundleVersion = builtinBundleVersion,
+            sourceSha = BuildConfig.GIT_SHA,
+        )
+    }
     val store = UpdateStore(rootDir)
 
     @Volatile var running: Running? = null
@@ -85,10 +99,14 @@ class HostRuntime(
     private val main = Handler(Looper.getMainLooper())
 
     val services: HostServices = object : HostServices {
-        override val hostVersionName = hostInfo.hostVersionName
-        override val hostApiLevel = hostInfo.hostApiLevel
-        override val nativeAbi = hostInfo.nativeAbi
-        override val nativeRuntimeId = hostInfo.nativeRuntimeId
+        override val hostVersionName get() = hostInfo.hostVersionName
+        override val hostApiLevel get() = hostInfo.hostApiLevel
+        override val nativeAbi get() = hostInfo.nativeAbi
+        override val nativeRuntimeId get() = hostInfo.nativeRuntimeId
+        override val nativeVersion get() = nativeVersionText
+        override val buildSha get() = BuildConfig.GIT_SHA
+        override val engine get() = engineApi
+        override val engineUnavailableReason get() = (engineState as? EngineStatus.Unavailable)?.let { "${it.stage}: ${it.reason}" }
         override fun diagnosticsJson() = this@HostRuntime.diagnosticsJson()
         override fun deviceSnapshotJson() = DeviceProbe.snapshotJson(ctx)
         override fun checkForUpdates(callback: (UpdateStatus) -> Unit) = this@HostRuntime.checkForUpdates(callback)
@@ -101,11 +119,12 @@ class HostRuntime(
         val r = running
         val s = starting
         val state = store.load()
+        val es = engineState.describe()
         when {
-            r != null -> Diagnostics.build(hostInfo, state, r.source, r.version, r.versionName, r.slotId)
+            r != null -> Diagnostics.build(hostInfo, state, r.source, r.version, r.versionName, r.slotId, engineStatus = es)
             // Bundle coming up: report what is starting, with an explicit source so it is never mistaken for a settled state.
-            s != null -> Diagnostics.build(hostInfo, state, "starting:${s.source}", s.version, s.versionName, s.slotId)
-            else -> Diagnostics.build(hostInfo, state, "none", 0, "-", null)
+            s != null -> Diagnostics.build(hostInfo, state, "starting:${s.source}", s.version, s.versionName, s.slotId, engineStatus = es)
+            else -> Diagnostics.build(hostInfo, state, "none", 0, "-", null, engineStatus = es)
         }
     }
 
@@ -119,6 +138,7 @@ class HostRuntime(
      */
     fun boot(makeView: (BundleApp) -> View): Running? {
         startedAtMs = SystemClock.elapsedRealtime()
+        hostInfo // bring the native engine up now, on this worker thread (never on the main thread)
         runCatching { store.reconcileBuiltin(builtinBundleVersion, hostInfo.nativeAbi) }
         repeat(6) {
             when (val plan = store.planBoot()) {

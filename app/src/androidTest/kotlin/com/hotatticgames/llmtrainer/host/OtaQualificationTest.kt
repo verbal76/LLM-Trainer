@@ -29,7 +29,8 @@ import java.util.zip.ZipInputStream
  * verification against the key embedded in this APK. Fixture bundles are produced by CI with the same
  * key (tools/ci/build-fixtures.sh; the built-in bundle of this APK is #3 / "2.0" on native ABI 2):
  *   bundle-4-good (#4, "2.1"), bundle-5-selftest (#5, selfTest fails), bundle-6-abi3 (#6, needs native ABI 3),
- *   bundle-7-throws (#7, entry constructor throws), bundle-8-abi1 (#8, built for native ABI 1: obsolete here).
+ *   bundle-7-throws (#7, entry constructor throws), bundle-8-abi1 (#8, built for native ABI 1: obsolete here),
+ *   bundle-9-needs-engine (#9, requires inference.gguf.v1 + training.patch.v1).
  */
 class OtaQualificationTest {
     private val instr = InstrumentationRegistry.getInstrumentation()

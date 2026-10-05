@@ -32,7 +32,7 @@ val sdkDir: String? = System.getenv("ANDROID_HOME")
     ?: file("local.properties").takeIf { it.exists() }?.readLines()
         ?.firstOrNull { it.startsWith("sdk.dir=") }?.removePrefix("sdk.dir=")
 if (sdkDir != null && file(sdkDir).isDirectory) {
-    include(":host-api", ":bundle", ":app")
+    include(":host-api", ":runtime", ":bundle", ":app")
 } else {
     logger.warn("No Android SDK found: building JVM modules only (:ota-core).")
 }

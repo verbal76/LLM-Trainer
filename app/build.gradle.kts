@@ -52,8 +52,14 @@ android {
             }
         }
     }
+    packaging {
+        // Native libs stay uncompressed + page-aligned inside the APK (mandatory for 16 KB page-size devices).
+        jniLibs { useLegacyPackaging = false }
+    }
     buildTypes {
         release {
+            // Phones only: the x86_64 engine build exists for emulator qualification (debug/test APK) and never ships.
+            ndk { abiFilters += "arm64-v8a" }
             isMinifyEnabled = false // bundles resolve kotlin-stdlib + host API from the host: never strip them
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
@@ -70,6 +76,7 @@ android {
 dependencies {
     implementation(project(":ota-core"))
     api(project(":host-api"))
+    implementation(project(":runtime"))
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")

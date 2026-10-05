@@ -29,7 +29,7 @@ A bundle declares `requires` in its signed manifest. It is installable only if *
    (state written by v1 hosts has no ABI field and is ABI 1 by definition). Bundles never contain native code: `.so`, `lib/**`, `.jar`, `.apk` are refused by the
    format itself even if signed.
 3. **Capabilities** – every capability the bundle lists must be advertised by the host (e.g. `core.v1`,
-   `device.snapshot.v1`, later `inference.gguf.v1`). This lets bundles depend on a *feature*, not an exact APK,
+   `device.snapshot.v1`, `inference.gguf.v1`, `training.patch.v1`; the last two are advertised only if the native engine actually initialised on that device - see docs/architecture/android-runtime.md). This lets bundles depend on a *feature*, not an exact APK,
    so one APK serves many bundle versions and vice versa.
 4. **minSdk** of the device.
 5. **Strictly newer** than everything already held and than the bundle embedded in the APK. A bundle version that

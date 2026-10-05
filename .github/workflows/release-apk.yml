@@ -91,12 +91,21 @@ jobs:
         with: { ref: "${{ needs.prepare.outputs.sha }}" }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
+      - name: Native toolchain pins (gradle.properties)
+        id: pins
+        run: |
+          echo "ndk=$(sed -n 's/^hag.ndkVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+          echo "cmake=$(sed -n 's/^hag.cmakeVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
       - uses: android-actions/setup-android@v3
-        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+        with: { packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}" }
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: runtime/build/llama.cpp
+          key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
       - name: JVM module tests
         run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
-      - name: "Native engine tests (runtime engineer owns tools/ci/native-engine-tests.sh; it must exist)"
+      - name: "Native engine tests (JNI host test against a stub engine, host-api + runtime JVM suites)"
         run: |
           [ -x tools/ci/native-engine-tests.sh ] || { echo "::error::tools/ci/native-engine-tests.sh is missing: a native release cannot skip the engine tests"; exit 1; }
           tools/ci/native-engine-tests.sh
@@ -115,22 +124,44 @@ jobs:
 
   # ---------------------------------------------------------------------------------------------------------------
   emulator:
-    name: Emulator suites (API ${{ matrix.api }})
+    name: Emulator suites (${{ matrix.id }})
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        api: [34, 36]
+        include:
+          - { id: api34, api: 34, target: google_apis }
+          - { id: api36, api: 36, target: google_apis }
+          - { id: ps16k, api: 36, target: google_apis_ps16k }
     steps:
       - uses: actions/checkout@v4
         with: { ref: "${{ needs.prepare.outputs.sha }}" }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
+      - name: Native toolchain pins (gradle.properties)
+        id: pins
+        run: |
+          echo "ndk=$(sed -n 's/^hag.ndkVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+          echo "cmake=$(sed -n 's/^hag.cmakeVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
       - uses: android-actions/setup-android@v3
-        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+        with: { packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}" }
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: runtime/build/llama.cpp
+          key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
+      - name: Resolve emulator system image (the 16 KB page-size image may never be skipped for a release)
+        id: img
+        env: { HAG_REQUIRE_PS16K: "1" }
+        run: tools/ci/resolve-emulator-image.sh "${{ matrix.target }}" "${{ matrix.api }}"
+      - uses: actions/cache@v4
+        with:
+          path: ~/hag-models
+          key: hag-models-smollm2-135m-instruct-v1
+      - name: Fetch + verify real test models (sha256 and size from the Hugging Face API)
+        run: python3 tools/ci/fetch-test-models.py "$HOME/hag-models" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Ephemeral qualification key (tests only; never the production key)
         run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
       - name: Build qualification fixtures
@@ -139,24 +170,40 @@ jobs:
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: Instrumented suites (OTA qualification, splash, restore guard, studio flow)
+      - name: Pre-build native engine + test APKs (x86_64)
+        run: |
+          ./gradlew --no-daemon -Phag.abis=x86_64 :runtime:assembleDebugAndroidTest :app:assembleDebugAndroidTest \
+            -PgitSha=${{ needs.prepare.outputs.short }} -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub \
+            -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures
+      - name: Instrumented suites (real engine + real models, OTA qualification, splash, restore guard, studio flow)
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          EXPECT_PAGE_SIZE: ${{ matrix.id == 'ps16k' && '16384' || '' }}
+          HAG_ABIS: x86_64
+          GIT_SHA_SHORT: ${{ needs.prepare.outputs.short }}
+          CI_KEY: ${{ runner.temp }}/ci-ota
+          FIXTURES: ${{ github.workspace }}/fixtures
+          MODELS_DIR: /home/runner/hag-models
         with:
-          api-level: ${{ matrix.api }}
+          api-level: ${{ steps.img.outputs.api }}
           arch: x86_64
-          target: google_apis
+          target: ${{ matrix.target }}
+          cores: 4
+          ram-size: 6144M
+          heap-size: 1024M
+          disk-size: 10G
           disable-animations: true
-          script: |
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest -PgitSha=${{ needs.prepare.outputs.short }} -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures; rc=$?
-            adb logcat -d -s HagOta:V HagHost:V AndroidRuntime:E | tail -120
-            exit $rc
+          # ONE line: the action runs each script line in its own shell; the script carries the exit status.
+          script: bash tools/ci/run-native-tests.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: emulator-reports-api${{ matrix.api }}
+          name: emulator-reports-${{ matrix.id }}
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
+            runtime/build/reports/androidTests
+            runtime/build/outputs/androidTest-results
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------------------------------------------
@@ -172,9 +219,18 @@ jobs:
         with: { ref: "${{ needs.prepare.outputs.sha }}" }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
+      - name: Native toolchain pins (gradle.properties)
+        id: pins
+        run: |
+          echo "ndk=$(sed -n 's/^hag.ndkVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+          echo "cmake=$(sed -n 's/^hag.cmakeVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
       - uses: android-actions/setup-android@v3
-        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+        with: { packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}" }
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: runtime/build/llama.cpp
+          key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
       - name: Canonical studio logo
         run: echo "e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e  branding/hot-attic-games/studio-logo.png" | sha256sum -c -
       - name: Restore signing material
@@ -224,7 +280,7 @@ jobs:
           print('RUNTIME_ID=%s' % sys.argv[1])
           PY
           cat identity.env
-      - name: "16 KB page-size compatibility (runtime engineer owns tools/ci/check-16kb.sh; it must exist)"
+      - name: "16 KB page-size compatibility + phone-only ABI set (tools/ci/check-16kb.sh)"
         env: { VERSION: "${{ needs.prepare.outputs.version }}" }
         run: |
           [ -x tools/ci/check-16kb.sh ] || { echo "::error::tools/ci/check-16kb.sh is missing: a native release cannot skip the 16 KB check"; exit 1; }
