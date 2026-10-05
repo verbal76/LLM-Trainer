@@ -100,7 +100,9 @@ def run_job(
                 train_state = "failed"
             else:
                 if not execute:
-                    st.add("train", "planned", f"dry-run only: would run {plan.command}", plan=plan.as_dict())
+                    flags = (" --allow-download" if allow_download else "") + (" --allow-unverified-license-for-local-experiment" if allow_unverified_local else "")
+                    st.add("train", "planned", f"dry-run only: would run `llmtrainer train --config job/train_config.json --execute{flags}`",
+                           plan=plan.as_dict())
                     train_state = "planned"
                 else:
                     try:
@@ -137,7 +139,7 @@ def run_job(
     # 5. results package
     out = Path(out) if out else ws.root / "results" / f"{ws.project().project_id}-{state.get('job_id')}.llmtrainer-results.zip"
     status = "no_training" if method in NO_TRAIN_METHODS else None
-    st.add("package_results", "executed", f"wrote {out}")
+    st.add("package_results", "executed", "wrote the results package (checksummed zip)")
     res = export_results(ws, out, stages=st.public(), status=status, overwrite=True, eval_id=eval_id, ignore_evals=eval_id is None,
                          run_id=run.run_id if run else None, ignore_runs=run is None,
                          notes=["Dry-run: nothing was trained or really evaluated; stages above show what was only planned."] if not execute else None)
