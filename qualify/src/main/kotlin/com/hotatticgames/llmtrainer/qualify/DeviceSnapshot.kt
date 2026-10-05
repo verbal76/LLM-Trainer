@@ -124,6 +124,17 @@ object DeviceSnapshot {
         return SnapshotProfile(prof, notes, withhold)
     }
 
+    /** Host snapshot -> transient [DeviceState] (mirrors `state_from_snapshot` in gen_golden_capability.py). Unknown stays null. */
+    fun stateFromSnapshot(s: Map<String, Any?>): DeviceState {
+        val charging = if (s.containsKey("charging")) s["charging"] else s["isCharging"]
+        return DeviceState(thermalIndex(s["thermalStatus"]), num(s, "batteryPct"), charging as? Boolean, s.bool("powerSaveMode"))
+    }
+
+    fun stateFromSnapshot(json: String): DeviceState {
+        val o = try { MiniJson.parse(json).asObj() } catch (e: JsonException) { null }
+        return if (o == null) DeviceState() else stateFromSnapshot(o)
+    }
+
     /** Snapshot + candidates -> picks. A withheld snapshot yields tier "none" for every profile. */
     fun qualify(
         snapshotJson: String, candidates: List<CandidateConfig>, policy: SafetyPolicy = SafetyPolicy(),
