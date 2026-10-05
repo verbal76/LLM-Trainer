@@ -23,7 +23,7 @@
   },
   "repos": [
     {
-      "repo": "HuggingFaceTB/SmolLM2-135M-Instruct-GGUF",
+      "repo": "bartowski/SmolLM2-135M-Instruct-GGUF",
       "base_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
       "family": "SmolLM2",
       "params_b_nominal": 0.135,
@@ -77,34 +77,10 @@
       ],
       "files": [
         {
-          "id": "smollm2-360m-instruct-f16",
-          "glob": "*f16.gguf",
-          "quantization": "F16",
-          "precision": "f16",
-          "optional": true,
-          "exclude": [
-            "*bf16.gguf"
-          ]
-        },
-        {
-          "id": "smollm2-360m-instruct-f32",
-          "glob": "*f32.gguf",
-          "quantization": "F32",
-          "precision": "f32",
-          "optional": true
-        },
-        {
           "id": "smollm2-360m-instruct-q8_0",
           "glob": "*q8_0.gguf",
           "quantization": "Q8_0",
           "precision": "quantized"
-        },
-        {
-          "id": "smollm2-360m-instruct-q4_k_m",
-          "glob": "*q4_k_m.gguf",
-          "quantization": "Q4_K_M",
-          "precision": "quantized",
-          "optional": true
         }
       ]
     },
@@ -124,23 +100,6 @@
           "glob": "*q8_0.gguf",
           "quantization": "Q8_0",
           "precision": "quantized"
-        },
-        {
-          "id": "qwen3-0.6b-f16",
-          "glob": "*f16.gguf",
-          "quantization": "F16",
-          "precision": "f16",
-          "optional": true,
-          "exclude": [
-            "*bf16.gguf"
-          ]
-        },
-        {
-          "id": "qwen3-0.6b-bf16",
-          "glob": "*bf16.gguf",
-          "quantization": "BF16",
-          "precision": "bf16",
-          "optional": true
         }
       ]
     },
@@ -210,6 +169,73 @@
           "glob": "*q8_0.gguf",
           "quantization": "Q8_0",
           "precision": "quantized"
+        }
+      ]
+    },
+    {
+      "repo": "bartowski/SmolLM2-360M-Instruct-GGUF",
+      "base_repo": "HuggingFaceTB/SmolLM2-360M-Instruct",
+      "family": "SmolLM2",
+      "params_b_nominal": 0.36,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "smollm2-360m-instruct-f16",
+          "glob": "*f16.gguf",
+          "quantization": "F16",
+          "precision": "f16",
+          "optional": true,
+          "exclude": [
+            "*bf16.gguf"
+          ]
+        },
+        {
+          "id": "smollm2-360m-instruct-f32",
+          "glob": "*f32.gguf",
+          "quantization": "F32",
+          "precision": "f32",
+          "optional": true
+        },
+        {
+          "id": "smollm2-360m-instruct-q4_k_m",
+          "glob": "*q4_k_m.gguf",
+          "quantization": "Q4_K_M",
+          "precision": "quantized",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "repo": "bartowski/Qwen_Qwen3-0.6B-GGUF",
+      "base_repo": "Qwen/Qwen3-0.6B",
+      "family": "Qwen3",
+      "params_b_nominal": 0.6,
+      "expected_license": "Apache-2.0",
+      "license_text_urls": [
+        "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/{revision}/LICENSE",
+        "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE"
+      ],
+      "files": [
+        {
+          "id": "qwen3-0.6b-f16",
+          "glob": "*f16.gguf",
+          "quantization": "F16",
+          "precision": "f16",
+          "optional": true,
+          "exclude": [
+            "*bf16.gguf"
+          ]
+        },
+        {
+          "id": "qwen3-0.6b-bf16",
+          "glob": "*bf16.gguf",
+          "quantization": "BF16",
+          "precision": "bf16",
+          "optional": true
         }
       ]
     }
