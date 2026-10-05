@@ -6,7 +6,9 @@ import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.hotatticgames.llmtrainer.studio.api.FakeStudio
 import com.hotatticgames.llmtrainer.studio.api.SourceInput
+import com.hotatticgames.llmtrainer.studio.api.Studio
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.OutputStream
@@ -126,7 +128,67 @@ object StudioTestHooks {
     /** Replace the next license-file pick (license evidence screen, "import a license file"). */
     @JvmStatic fun supplyLicenseFile(fileName: String, text: String) { licName = fileName; licBytes = text.toByteArray(Charsets.UTF_8) }
 
-    @JvmStatic fun clear() { names = null; contents = null; sink = null; licName = null; licBytes = null }
+    /** Replace the next model-file pick (model manager import / acquire import) with this in-memory file. */
+    @JvmStatic fun supplyModelFile(fileName: String, content: String) { modelName = fileName; modelBytes = content.toByteArray(Charsets.UTF_8); modelPath = null }
+
+    /** Replace the next model-file pick with a file on disk (a real tiny GGUF in the real-engine instrumented test); streamed, never read into memory. */
+    @JvmStatic fun supplyModelPath(path: String) { modelPath = path; modelName = java.io.File(path).name; modelBytes = null }
+
+    /** Run every confirmation (download, delete, cancel training) without showing the dialog; dialogs are not in the view tree. */
+    @JvmStatic fun setAutoConfirm(on: Boolean) { confirmAll = on }
+
+    /** Replace the whole Studio with the scripted [FakeStudio] (sample v2 data when [sampleV2]) and redraw the current screen. */
+    @JvmStatic fun useFakeStudio(sampleV2: Boolean) {
+        fake = if (sampleV2) FakeStudio.sampleV2() else FakeStudio(seedSampleData = true, preinstallBaseModels = false)
+        rerender?.invoke()
+    }
+
+    /**
+     * FakeStudio v2 knobs, applied on the studio worker thread: engineAvailable, charging ("true"|"false"|"null"), batteryPercent, thermal,
+     * freeStorageMb, availableRamMb; "tick" advances scripted time (training steps, evaluation, downloads); "death" simulates process death.
+     */
+    @JvmStatic fun fakeKnob(name: String, value: String) {
+        val f = fake as? FakeStudio ?: return
+        runOnWorker?.invoke(Runnable {
+            when (name) {
+                "engineAvailable" -> f.v2.engineAvailable = value == "true"
+                "charging" -> f.v2.charging = if (value == "null") null else value == "true"
+                "batteryPercent" -> f.v2.batteryPercent = value.toIntOrNull()
+                "thermal" -> f.v2.thermal = if (value == "null") null else value
+                "freeStorageMb" -> f.v2.freeStorageMb = value.toLongOrNull() ?: f.v2.freeStorageMb
+                "availableRamMb" -> f.v2.availableRamMb = value.toIntOrNull() ?: f.v2.availableRamMb
+                "tick" -> repeat(value.toIntOrNull() ?: 1) { f.tick() }
+                "death" -> f.simulateProcessDeath()
+            }
+        })
+    }
+
+    @JvmStatic fun clear() {
+        names = null; contents = null; sink = null; licName = null; licBytes = null
+        modelName = null; modelBytes = null; modelPath = null; confirmAll = false; fake = null
+    }
+
+    @Volatile private var fake: Studio? = null
+    @Volatile private var confirmAll = false
+    @Volatile private var modelName: String? = null
+    @Volatile private var modelBytes: ByteArray? = null
+    @Volatile private var modelPath: String? = null
+    @Volatile private var rerender: (() -> Unit)? = null
+    @Volatile private var runOnWorker: ((Runnable) -> Unit)? = null
+
+    internal fun attach(redraw: () -> Unit, worker: (Runnable) -> Unit) { rerender = redraw; runOnWorker = worker }
+    internal fun detach() { rerender = null; runOnWorker = null }
+    internal fun studioOverride(): Studio? = fake
+    internal fun autoConfirm(): Boolean = confirmAll
+
+    /** The injected model file, if a test supplied one. */
+    internal fun modelFile(): SourceInput? {
+        val n = modelName ?: return null
+        val path = modelPath
+        if (path != null) { val f = java.io.File(path); return SourceInput(n, "application/octet-stream", f.length()) { f.inputStream() } }
+        val b = modelBytes ?: return null
+        return SourceInput(n, "application/octet-stream", b.size.toLong()) { ByteArrayInputStream(b) }
+    }
 
     internal fun licenseFile(): Pair<String, ByteArray>? {
         val n = licName; val b = licBytes

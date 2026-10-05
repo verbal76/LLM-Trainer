@@ -94,7 +94,7 @@ class StudioCore(
             val chosen = (p.variantId?.let { vid -> variants.firstOrNull { it.id == vid } }?.let { listOf(it) } ?: variants).firstNotNullOfOrNull { v -> acquiredFile(v.id)?.let { v to it } }
             val gate = licenses.gate(e, IntendedUse(true, true, p.commercial, p.redistribute))
             val name = catalogSvc.modelView(e).name
-            return BaseRef(e.entryId, chosen?.first?.id ?: p.variantId, name, chosen?.second?.first, gate, chosen?.second?.second)
+            return BaseRef(e.entryId, chosen?.first?.id ?: p.variantId, name, chosen?.second?.first, gate, chosen?.second?.second, chosen?.first?.quantization)
         }
         override fun dataView(id: ProjectId): DataView? {
             val p = proj(id) ?: return null

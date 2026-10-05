@@ -134,7 +134,9 @@ class ScriptedTrainer(private val baseShaOf: (String) -> String) : TrainingBacke
     override fun estimate(basePath: String, params: TrainParams): TrainEstimate {
         estimates.add(params)
         val layers = if (params.trainableLastLayers == 0) 28 else params.trainableLastLayers
-        return TrainEstimate(trainable, peakBytes + layers * peakPerLayerBytes, layers * 40_000_000L, if (trainable) null else "scripted: base not trainable (quantized)", secondsPerStep)
+        // LoRA keeps the base frozen: only the (tiny) adapter state is added to the base footprint
+        if (params.loraRank > 0) return TrainEstimate(trainable, peakBytes + params.loraRank * 2_000_000L, params.loraRank * 3_000_000L, if (trainable) null else "scripted: base not trainable", secondsPerStep)
+        return TrainEstimate(trainable,  peakBytes + layers * peakPerLayerBytes, layers * 40_000_000L, if (trainable) null else "scripted: base not trainable (quantized)", secondsPerStep)
     }
 
     override fun train(basePath: String, texts: List<String>, params: TrainParams, workDir: String, outPatchPath: String, cancel: CancelToken, progress: (TrainEvent) -> Unit) {

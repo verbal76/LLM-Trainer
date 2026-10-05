@@ -12,13 +12,20 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import com.hotatticgames.llmtrainer.engine.EngineWiring
+import com.hotatticgames.llmtrainer.hostapi.EngineApi
 import com.hotatticgames.llmtrainer.hostapi.HostServices
 import com.hotatticgames.llmtrainer.studio.api.ExportedPackage
+import com.hotatticgames.llmtrainer.studio.api.FakeStudio
+import com.hotatticgames.llmtrainer.studio.api.HostHooks
+import com.hotatticgames.llmtrainer.studio.api.ModelsApi
 import com.hotatticgames.llmtrainer.studio.api.ProjectSummary
 import com.hotatticgames.llmtrainer.studio.api.Screen
 import com.hotatticgames.llmtrainer.studio.api.Studio
 import com.hotatticgames.llmtrainer.studio.api.StudioError
 import com.hotatticgames.llmtrainer.studio.api.StudioResult
+import com.hotatticgames.llmtrainer.studio.core.ModelsFactory
+import com.hotatticgames.llmtrainer.studio.core.StudioCore
 import com.hotatticgames.llmtrainer.studio.core.StudioFactory
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,6 +40,9 @@ internal enum class Kind(val title: String) {
     ACQUIRE("Acquire model"), SOURCES("Sources"), INGEST("Ingestion report"), DATASET("Dataset"),
     REVIEW("Dataset review"), METHOD("Method"), TRAINING("Training job / reference package"),
     EVAL("Evaluation"), SPECIALIST("Specialist package"), UPDATES("Updates & diagnostics"),
+    // phone-first (native v2)
+    MODELS("Model manager"), CHAT("Chat"), TRAIN_LOCAL("Train on this phone"), AB("Base vs specialist"),
+    SPECIALISTS("Specialists on this phone"), ABOUT("About & this phone"),
 }
 
 internal data class Route(val kind: Kind, val projectId: String? = null, val modelId: String? = null, val variantId: String? = null) {
@@ -61,10 +71,50 @@ internal class Ctl(val context: Context, val host: HostServices) {
     private val appCtx: Context = context.applicationContext ?: context
     private val main = Handler(Looper.getMainLooper())
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "studio-worker").apply { isDaemon = true } }
+    /** Generation / evaluation / A-B block for a long time: they get their own thread so status polls and navigation stay responsive. */
+    private val execLong = Executors.newSingleThreadExecutor { r -> Thread(r, "studio-long").apply { isDaemon = true } }
     private val uiDir = File(appCtx.filesDir, "studio-ui")
 
-    /** Created on first use, on the worker thread only. */
-    val studio: Studio by lazy { StudioFactory.create(File(appCtx.filesDir, "studio")) { host.deviceSnapshotJson() } }
+    @Volatile private var realCreated = false
+
+    /** Created on first use, on a worker thread only. Tests may substitute a scripted studio (see [StudioTestHooks]). */
+    private val realStudio: Studio by lazy { realCreated = true; buildStudio() }
+    val studio: Studio get() = StudioTestHooks.studioOverride() ?: realStudio
+
+    /** The model manager surface of whichever studio is active (the real one, or the scripted fake in tests). */
+    fun models(): ModelsApi? = studio.let { s -> ModelsFactory.of(s) ?: (s as? FakeStudio)?.modelsApi }
+
+    /** Host passthrough for [Studio.host]: thin, no policy. */
+    private val hostHooks = object : HostHooks {
+        override fun diagnosticsJson(): String = host.diagnosticsJson()
+        override fun deviceSnapshotJson(): String = host.deviceSnapshotJson()
+        override fun checkForUpdates(callback: (com.hotatticgames.llmtrainer.studio.api.UpdateStatus) -> Unit) {
+            host.checkForUpdates { s ->
+                val state = when (s.kind) { "UP_TO_DATE" -> "up-to-date"; "STAGED", "NEEDS_NEW_APK" -> "available"; "CHECKING" -> "checking"; else -> "error" }
+                callback(com.hotatticgames.llmtrainer.studio.api.UpdateStatus(state, s.message))
+            }
+        }
+        override fun restartApp() = host.restartApp()
+    }
+
+    /**
+     * The real Studio with the native engine wired in ONLY when the host really has one and advertises the capabilities
+     * (inference.gguf.v1 / training.patch.v1). Otherwise both backends report "engine unavailable" with the host's reason.
+     */
+    private fun buildStudio(): Studio {
+        var engine: EngineApi? = null
+        var reason: String? = null
+        try {
+            if (host.hostApiLevel >= 2) { engine = host.engine; reason = host.engineUnavailableReason }
+            else reason = "This host (API level ${host.hostApiLevel}) predates the native engine; it needs level 2."
+        } catch (t: Throwable) {
+            reason = "The host did not answer the engine query: ${t.javaClass.simpleName}"
+        }
+        if (engine == null && reason == null) reason = "This install has no native engine."
+        val caps = try { EngineWiring.capabilitiesFrom(host.diagnosticsJson()) } catch (_: Throwable) { null }
+        val b = EngineWiring.create(engine, reason, caps)
+        return StudioFactory.createLocal(File(appCtx.filesDir, "studio"), { host.deviceSnapshotJson() }, hostHooks, b.inference, b.trainer)
+    }
 
     @Volatile var alive = true
     private var epoch = 0
@@ -179,6 +229,27 @@ internal class Ctl(val context: Context, val host: HostServices) {
         }
     }
 
+    /** Like [bg] but on the long-running thread (generation, evaluation, A/B). */
+    fun <T> long(work: () -> T, sticky: Boolean = true, done: (T) -> Unit) {
+        val e = epoch
+        setBusy(+1)
+        execLong.execute {
+            var result: T? = null
+            var failure: Throwable? = null
+            try { result = work() } catch (t: Throwable) { failure = t }
+            main.post {
+                setBusy(-1)
+                if (!alive) return@post
+                if (failure != null) { error("Unexpected error: ${failure.javaClass.simpleName}: ${failure.message}"); return@post }
+                if (!sticky && e != epoch) return@post
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    done(result as T)
+                } catch (t: Throwable) { error("Display error: ${t.javaClass.simpleName}: ${t.message}") }
+            }
+        }
+    }
+
     /** Studio call returning a [StudioResult]: errors go to the banner, success to [ok]. */
     fun <T> call(work: () -> StudioResult<T>, sticky: Boolean = false, ok: (T) -> Unit) {
         bg(work, sticky) { r -> handle(r, ok) }
@@ -220,6 +291,7 @@ internal class Ctl(val context: Context, val host: HostServices) {
     fun clearBanner() { banner.visibility = View.GONE }
 
     fun confirm(title: String, message: String, yes: String, action: () -> Unit) {
+        if (StudioTestHooks.autoConfirm()) { action(); return }      // test seam only: dialogs are not part of the view tree
         val a = activity
         if (a == null) { error("Cannot show a confirmation dialog without an Activity."); return }
         AlertDialog.Builder(a).setTitle(title).setMessage(message)
@@ -275,7 +347,15 @@ internal class Ctl(val context: Context, val host: HostServices) {
 
     // ---- host lifecycle --------------------------------------------------------------------------------
     fun onResume() { resumeHook?.invoke() }
-    fun destroy() { alive = false; exec.shutdown() }
+    /** The app went to the background: give the resident model's RAM back (idle only; never interrupts a running generation or training). */
+    fun onPauseHook() {
+        if (!realCreated || StudioTestHooks.studioOverride() != null) return
+        val s = realStudio as? StudioCore ?: return
+        val t = Thread({ try { s.releaseModels() } catch (_: Throwable) { } }, "studio-release")
+        t.isDaemon = true; t.start()
+    }
+
+    fun destroy() { alive = false; exec.shutdown(); execLong.shutdown(); StudioTestHooks.detach() }
 
     fun routeFor(s: Screen?, p: ProjectSummary): Route = when (s) {
         null, Screen.DASHBOARD -> Route(Kind.HUB, p.id.value)
@@ -292,6 +372,8 @@ internal class Ctl(val context: Context, val host: HostServices) {
         Screen.EVALUATION -> Route(Kind.EVAL, p.id.value)
         Screen.EXPORT, Screen.IMPORT_PACKAGE -> Route(Kind.SPECIALIST, p.id.value)
     }
+
+    init { StudioTestHooks.attach({ post { render() } }, { r -> exec.execute(r) }) }
 }
 
 /** Named root so tests can reach the bundle's class loader (platform Views would resolve to the framework loader). */

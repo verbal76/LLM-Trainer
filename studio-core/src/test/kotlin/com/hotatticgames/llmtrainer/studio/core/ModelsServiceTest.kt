@@ -74,6 +74,20 @@ class ModelsServiceTest {
         assertEquals(LicenseState.VERIFIED, f16.licenseState)
     }
 
+    @Test fun hostReportedChargingMakesReadyToTrainNowWork() {
+        // The host DeviceProbe reports `charging` (BatteryManager); ready_to_train_now needs it true, thermal and battery known and fine, power save off.
+        fun f16(extra: String) = open(pixel(extra = extra)).models.modelChoices().artifacts.first { it.artifactId == "smollm2-360m-instruct-f16" }
+        val on = f16(",\"charging\":true,\"batteryPct\":80,\"powerSaveMode\":false")
+        assertTrue(on.conditions.any { it.name == "charging" && it.status == "met" }, on.conditions.toString())
+        assertTrue(on.readyToTrainNow, on.conditions.toString())
+        val off = f16(",\"charging\":false,\"batteryPct\":90,\"powerSaveMode\":false")
+        assertTrue(off.conditions.any { it.name == "charging" && it.status == "unmet" } && !off.readyToTrainNow, "training requires the charger even with a full battery")
+        val unknown = f16(",\"batteryPct\":80,\"powerSaveMode\":false")
+        assertTrue(unknown.conditions.any { it.name == "charging" && it.status == "unknown" } && !unknown.readyToTrainNow, "a missing charger fact never counts as met")
+        // the legacy key spelling still works
+        assertTrue(f16(",\"isCharging\":true,\"batteryPct\":80,\"powerSaveMode\":false").readyToTrainNow)
+    }
+
     @Test fun lowMemoryStateAndHotDeviceWithholdChoices() {
         val low = open(pixel(0.2).replace("\"lowMemory\":false", "\"lowMemory\":true")).models.modelChoices()
         assertTrue(low.artifacts.none { it.canLoad }, "a device in low-memory state cannot load anything")

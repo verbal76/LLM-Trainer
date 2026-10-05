@@ -64,14 +64,19 @@ internal class Ui(val ctx: Context) {
     fun button(s: String, tagName: String, primary: Boolean = true, onClick: () -> Unit): Button {
         val b = Button(ctx)
         b.text = s; b.isAllCaps = false; b.minimumHeight = px(52)
-        b.setTextColor(if (primary) Color.BLACK else ink)
-        b.background = GradientDrawable().apply {
-            setColor(if (primary) accent else Color.parseColor("#2A2A36")); cornerRadius = px(10).toFloat()
-        }
+        setPrimary(b, primary)
         b.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) }
         b.tag = tagName
         b.setOnClickListener { onClick() }
         return b
+    }
+
+    /** (Re)style a button as primary (accent) or secondary. */
+    fun setPrimary(b: Button, primary: Boolean) {
+        b.setTextColor(if (primary) Color.BLACK else ink)
+        b.background = GradientDrawable().apply {
+            setColor(if (primary) accent else Color.parseColor("#2A2A36")); cornerRadius = px(10).toFloat()
+        }
     }
 
     fun edit(hint: String, tagName: String, number: Boolean = false, decimal: Boolean = false, multiline: Boolean = false): EditText {
@@ -118,6 +123,12 @@ internal class Ui(val ctx: Context) {
         return p
     }
 
+    fun section(s: String): TextView = tv(s, 12f, accent, true, 14)
+    fun line(s: String, color: Int = muted, size: Float = 12f): TextView = tv(s, size, color)
+
+    fun conditionColor(status: String) = when (status) { "met" -> ok; "unmet" -> bad; else -> muted }
+    fun conditionText(status: String) = when (status) { "met" -> "MET"; "unmet" -> "NOT MET"; else -> "UNKNOWN" }
+
     fun spacer(dp: Int): View = View(ctx).apply { layoutParams = ViewGroup.LayoutParams(-1, px(dp)) }
 
     // ---- colour+text semantics (never colour alone) -----------------------------------------------------
@@ -154,3 +165,17 @@ internal fun fmtMb(mb: Long): String = fmtBytes(mb * 1_048_576L)
 internal fun fmtNum(d: Double): String = String.format(Locale.US, "%.3f", d)
 internal fun shortHash(h: String?): String = if (h == null) "-" else if (h.length > 16) h.substring(0, 16) + "..." else h
 internal fun slug(s: String): String = s.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "specialist" }
+
+internal fun fmtSecs(ms: Double): String = String.format(Locale.US, "%.1f s", ms / 1000.0)
+
+/** One honest line of generation measurements; absent numbers are left out, never invented. */
+internal fun fmtGenStats(g: com.hotatticgames.llmtrainer.studio.api.GenerationStats): String {
+    val parts = ArrayList<String>()
+    g.modelLoadMs?.let { parts.add("model load " + fmtSecs(it.toDouble())) }
+    g.timeToFirstTokenMs?.let { parts.add("first token " + fmtSecs(it)) }
+    parts.add(String.format(Locale.US, "%.1f tok/s", g.tokensPerSecond))
+    parts.add("${g.generatedTokens} tokens (prompt ${g.promptTokens})")
+    g.peakRssMb?.let { parts.add("process RAM peak $it MB") }
+    parts.add("stopped: " + g.stopReason.name.lowercase().replace('_', ' '))
+    return parts.joinToString(" - ")
+}

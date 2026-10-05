@@ -99,6 +99,8 @@ class EngineAdapter(private val e: HagEngine) : EngineApi {
                 trainEmbeddings = o.optInt(TrainConfigKeys.TRAIN_EMBEDDINGS, if (d.trainEmbeddings) 1 else 0) != 0,
                 checkpointEverySteps = o.optInt(TrainConfigKeys.CHECKPOINT_EVERY_STEPS, d.checkpointEverySteps),
                 maxMemoryBytes = o.optLong(TrainConfigKeys.MAX_MEMORY_BYTES, d.maxMemoryBytes),
+                loraRank = o.optInt(TrainConfigKeys.LORA_RANK, d.loraRank),
+                loraAlpha = o.optDouble(TrainConfigKeys.LORA_ALPHA, d.loraAlpha.toDouble()).toFloat(),
             )
         }
     }

@@ -35,6 +35,13 @@ object Conditions {
     fun thermalLevel(c: DeviceConditions): Int? = c.thermal?.let { THERMAL.indexOf(it).takeIf { i -> i >= 0 } }
 }
 
+internal const val DEFAULT_LORA_RANK = 8
+internal const val LORA_LEARNING_RATE = 2e-3f
+private val FLOAT_QUANTS = setOf("F16", "F32", "BF16", "FP16", "FP32")
+/** True for block-quantized GGUF types (Q4_K_M, Q8_0, IQ...). Unknown (null) is treated as NOT quantized so nothing is steered by a guess. */
+internal fun isQuantizedName(q: String?): Boolean = q != null && q.uppercase().replace("-", "").replace("_", "") !in FLOAT_QUANTS && q.isNotBlank() && !q.equals("unspecified", true)
+internal const val FORGETTING_NOTE = "Fine-tuning can make the model forget general knowledge (the engine measured +4 nats on unrelated prose with aggressive full tuning): run the local evaluation, which measures retention."
+
 object TrainGates {
     const val MIN_BATTERY = 20
     const val ABORT_BATTERY = 15
@@ -194,8 +201,11 @@ class TrainingService(
 
     private fun paramsOf(s: TrainingSettings, kind: TrainingMethodKind, budgetBytes: Long) = TrainParams(
         contextTokens = s.contextTokens, batchTokens = s.contextTokens, epochs = s.epochs, learningRate = s.learningRate, valFraction = 0.1f, seed = s.seed,
-        trainableLastLayers = if (kind == TrainingMethodKind.LOCAL_FULL) 0 else s.trainableLastLayers.coerceAtLeast(1), trainEmbeddings = s.trainEmbeddings,
-        checkpointEverySteps = s.checkpointEverySteps, maxMemoryBytes = budgetBytes)
+        trainableLastLayers = when (kind) { TrainingMethodKind.LOCAL_FULL -> 0; TrainingMethodKind.LOCAL_LORA -> s.trainableLastLayers.coerceAtLeast(0); else -> s.trainableLastLayers.coerceAtLeast(1) },
+        trainEmbeddings = s.trainEmbeddings && kind != TrainingMethodKind.LOCAL_LORA,
+        checkpointEverySteps = s.checkpointEverySteps, maxMemoryBytes = budgetBytes,
+        loraRank = if (kind == TrainingMethodKind.LOCAL_LORA) (if (s.loraRank > 0) s.loraRank else DEFAULT_LORA_RANK) else 0,
+        loraAlpha = if (kind == TrainingMethodKind.LOCAL_LORA) s.loraAlpha else 0f)
 
     private fun storageMb(est: TrainEstimate?): Long {
         val p = est?.trainableParams ?: return 2048
@@ -244,33 +254,48 @@ class TrainingService(
         val defaults = TrainingSettings()
         val budgetBytes = ((c.availableRamMb - TrainGates.reserveMb(c.availableRamMb, policy)).coerceAtLeast(0.0) * Conditions.MIB).toLong()
 
+        val quantized = isQuantizedName(base?.quant)
         fun localOption(kind: TrainingMethodKind, layers: Int?): TrainingOption {
-            val s = defaults.copy(kind = kind, trainableLastLayers = layers ?: 0)
+            val lora = kind == TrainingMethodKind.LOCAL_LORA
+            val s = if (lora) defaults.copy(kind = kind, trainableLastLayers = layers ?: 0, learningRate = LORA_LEARNING_RATE, loraRank = DEFAULT_LORA_RANK)
+                    else defaults.copy(kind = kind, trainableLastLayers = layers ?: 0)
             val blockers = ArrayList(common)
             var estimate: ResourceEstimate? = null
             if (canEstimate) {
                 val est = try { eng.trainer!!.estimate(base!!.file!!.absolutePath, paramsOf(s, kind, budgetBytes)) } catch (e: BackendException) { TrainEstimate(false, 0, null, e.message) }
-                estimate = if (est.peakBytes > 0) resource(est, seqs, s, "ENGINE ESTIMATE for ${if (kind == TrainingMethodKind.LOCAL_FULL) "all layers" else "last $layers layers"}, context ${s.contextTokens}") else null
+                estimate = if (est.peakBytes > 0) resource(est, seqs, s, "ENGINE ESTIMATE for ${when (kind) { TrainingMethodKind.LOCAL_FULL -> "all layers"; TrainingMethodKind.LOCAL_LORA -> "LoRA rank ${s.loraRank}"; else -> "last $layers layers" }}, context ${s.contextTokens}") else null
                 blockers.addAll(TrainGates.fit(c, est, storageMb(est), policy))
             }
             blockers.addAll(dev)
             val reasons = ArrayList<String>()
-            if (kind == TrainingMethodKind.LOCAL_FULL) reasons.add("Updates every layer: highest quality potential, largest memory need")
-            else reasons.add("Updates only the last $layers transformer block(s): smaller memory need, bounded gains")
+            when (kind) {
+                TrainingMethodKind.LOCAL_FULL -> reasons.add("Updates every layer: highest quality potential, largest memory need")
+                TrainingMethodKind.LOCAL_LORA -> {
+                    reasons.add("Trains small adapter matrices (LoRA rank ${s.loraRank}) while the base weights stay frozen: works on quantized bases, needs the least memory, and the result is a standard adapter file")
+                    if (quantized) reasons.add("Recommended for this quantized base: weight tuning would need a full-precision working copy")
+                }
+                else -> reasons.add("Updates only the last $layers transformer block(s): smaller memory need, bounded gains")
+            }
             if (blockers.any { it.code == "TOO_LARGE" || it.code == "NOT_TRAINABLE" }) reasons.add("A desktop job is available as an optional alternative for configurations too big for the phone")
-            return TrainingOption(kind, if (kind == TrainingMethodKind.LOCAL_FULL) "Fine-tune all layers on this phone" else "Fine-tune the last $layers layers on this phone", true, true, RunLocation.DEVICE,
+            val label = when (kind) { TrainingMethodKind.LOCAL_FULL -> "Fine-tune all layers on this phone"; TrainingMethodKind.LOCAL_LORA -> "Train a LoRA adapter on this phone"; else -> "Fine-tune the last $layers layers on this phone" }
+            return TrainingOption(kind, label, true, true, RunLocation.DEVICE,
                 blockers.isEmpty(), false, layers, reasons, blockers.distinctBy { it.code }, reqs, estimate,
-                "Changes model parameters on this phone and produces a patch file; the base model file is untouched." + if (kind == TrainingMethodKind.LOCAL_PARTIAL) " Partial fine-tune, not full." else "")
+                (if (lora) "Changes model behaviour through a LoRA adapter produced on this phone; the base model file is untouched." else "Changes model parameters on this phone and produces a patch file; the base model file is untouched.") +
+                    (if (kind == TrainingMethodKind.LOCAL_PARTIAL) " Partial fine-tune, not full." else "") + " " + FORGETTING_NOTE)
         }
 
         val full = localOption(TrainingMethodKind.LOCAL_FULL, null)
+        val loraOpt = localOption(TrainingMethodKind.LOCAL_LORA, null)
         // largest partial configuration that fits; if none fits, show the smallest with its blockers
         val partials = listOf(8, 4, 2, 1).map { localOption(TrainingMethodKind.LOCAL_PARTIAL, it) }
         val partial = partials.firstOrNull { it.available } ?: partials.last()
-        val recommendedKind = when { full.available -> TrainingMethodKind.LOCAL_FULL; partial.available -> TrainingMethodKind.LOCAL_PARTIAL; else -> null }
+        // Preference: float base -> the largest weight-tuning configuration that fits, LoRA as the lighter alternative; quantized base -> LoRA first.
+        val order = if (quantized) listOf(loraOpt, partial, full) else listOf(full, partial, loraOpt)
+        val recommendedKind = order.firstOrNull { it.available }?.kind
         val options = listOf(
             full.copy(recommended = recommendedKind == TrainingMethodKind.LOCAL_FULL),
             partial.copy(recommended = recommendedKind == TrainingMethodKind.LOCAL_PARTIAL),
+            loraOpt.copy(recommended = recommendedKind == TrainingMethodKind.LOCAL_LORA),
             TrainingOption(TrainingMethodKind.EXTERNAL_COMPUTE, "Train on a desktop/GPU (export a job)", true, true, RunLocation.DESKTOP, desktopBlockers.isEmpty() && desktopOk, false, null,
                 listOf("Optional fallback for jobs too big for the phone"), desktopBlockers, listOf("A desktop with llmtrainer installed"), null,
                 "The phone only prepares a job package; nothing trains on this device. You choose whether to use it."),
@@ -279,7 +304,10 @@ class TrainingService(
             TrainingOption(TrainingMethodKind.PROMPT_ONLY, "Prompt specialization", false, false, RunLocation.NONE, true, false, null,
                 listOf("Instant; no resources"), emptyList(), emptyList(), null, "NOT training: instructions only, no new knowledge."))
         val rec = options.firstOrNull { it.recommended }
-        val defaultSettings = rec?.let { defaults.copy(kind = it.kind, trainableLastLayers = it.trainableLastLayers ?: 0) }
+        val defaultSettings = rec?.let {
+            if (it.kind == TrainingMethodKind.LOCAL_LORA) defaults.copy(kind = it.kind, trainableLastLayers = 0, learningRate = LORA_LEARNING_RATE, loraRank = DEFAULT_LORA_RANK)
+            else defaults.copy(kind = it.kind, trainableLastLayers = it.trainableLastLayers ?: 0)
+        }
         return LocalTrainingPlan(pid, base?.modelId, datasetSha, approved, seqs, c, options, recommendedKind, defaultSettings, clock.nowMs())
     }
 
@@ -312,9 +340,9 @@ class TrainingService(
 
     fun start(pid: ProjectId, s: TrainingSettings, confirmed: Boolean): TrainingRun {
         if (host.projectDir(pid) == null) throw StudioException(StudioError.NotFound("project ${pid.value}"))
-        if (s.kind != TrainingMethodKind.LOCAL_FULL && s.kind != TrainingMethodKind.LOCAL_PARTIAL)
+        if (s.kind != TrainingMethodKind.LOCAL_FULL && s.kind != TrainingMethodKind.LOCAL_PARTIAL && s.kind != TrainingMethodKind.LOCAL_LORA)
             throw StudioException(StudioError.Invalid("NOT_LOCAL_TRAINING", "${s.kind} does not train on this phone. Retrieval and prompting are not training; desktop jobs use the export flow."))
-        if (s.epochs < 1 || s.epochs > 20 || s.contextTokens !in 64..8192 || s.maxSequences !in 1..100_000 || s.learningRate <= 0f || s.learningRate > 1f || s.trainableLastLayers < 0)
+        if (s.epochs < 1 || s.epochs > 20 || s.contextTokens !in 64..8192 || s.maxSequences !in 1..100_000 || s.learningRate <= 0f || s.learningRate > 1f || s.trainableLastLayers < 0 || s.loraRank !in 0..256 || s.loraAlpha < 0f)
             throw StudioException(StudioError.Invalid("BAD_SETTINGS", "Training settings are out of range"))
         synchronized(lock) {
             runs.values.firstOrNull { it.run.projectId == pid && !it.run.isTerminal }?.let {

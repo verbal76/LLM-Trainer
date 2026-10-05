@@ -111,7 +111,11 @@ class JniHostTest {
         assertEquals(TrainEvent(1, 1, 3, 0, 3, 100, 2.0, evs[0].valLoss, 0.0, 1L shl 20, 7), evs[0])
         assertTrue(evs[0].valLoss.isNaN()); assertEquals(TrainEvent.DONE, evs[2].phase)
         val line = out.readText().trim()
-        assertEquals("n=2 first=fact 😀 one last=last é ctx=321 batch=64 ep=9 lr=0.000250 val=0.125 seed=4000000000 thr=2 last=4 emb=1 ck=11 mem=3000000000", line)
+        assertEquals("n=2 first=fact 😀 one last=last é ctx=321 batch=64 ep=9 lr=0.000250 val=0.125 seed=4000000000 thr=2 last=4 emb=1 ck=11 mem=3000000000 lora=0 alpha=0.000", line)
+        // LoRA parameters cross the JNI boundary into hag_train_params.lora_rank / lora_alpha
+        val lora = cfg.copy(loraRank = 8, loraAlpha = 12.5f)
+        e.train("/b.gguf", listOf("x", "y"), lora, dir.path, out.path) { false }
+        assertTrue(out.readText().trim().endsWith("mem=3000000000 lora=8 alpha=12.500"), out.readText())
         val c = assertFailsWith<HagException> { e.train("/b.gguf", listOf("a"), cfg, dir.path, out.path) { true } }
         assertTrue(c.cancelled)
         assertTrue(e.patchInfoJson("/p/x").contains("/p/x"))

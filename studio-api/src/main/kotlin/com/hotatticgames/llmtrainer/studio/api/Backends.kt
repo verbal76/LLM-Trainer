@@ -88,6 +88,8 @@ data class TrainParams(
     /** 0 = all layers; N = only the last N transformer blocks (+ final norm). */
     val trainableLastLayers: Int = 0, val trainEmbeddings: Boolean = false,
     val checkpointEverySteps: Int = 0, val maxMemoryBytes: Long = 0,
+    /** Mirrors hag_train_params.lora_rank/lora_alpha: > 0 trains LoRA adapters (base frozen, patch = adapter GGUF); alpha 0 = 2 x rank. */
+    val loraRank: Int = 0, val loraAlpha: Float = 0f,
 )
 
 data class TrainEstimate(

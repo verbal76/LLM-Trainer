@@ -28,7 +28,7 @@ Evaluation: `startLocalEvaluation`, `localEvaluations/localEvaluation`, `cancelL
 `MethodOption` gained `changesParameters`; `MethodIds.PARTIAL_ON_DEVICE` was added next to `ADAPTER_ON_DEVICE` (all layers). Desktop job export/import is unchanged.
 
 ## Training plan
-`localTrainingPlan` returns one `TrainingOption` per `TrainingMethodKind`: `LOCAL_FULL`, `LOCAL_PARTIAL(last N layers)`, `EXTERNAL_COMPUTE` (desktop, optional fallback),
+`localTrainingPlan` returns one `TrainingOption` per `TrainingMethodKind`: `LOCAL_FULL`, `LOCAL_PARTIAL(last N layers)`, `LOCAL_LORA` (rank-r adapters, base frozen; the patch is a standard llama.cpp LoRA adapter GGUF; preferred for quantized bases, learning rate default 2e-3; `TrainingSettings.loraRank/loraAlpha`, `TrainParams.loraRank/loraAlpha`), `EXTERNAL_COMPUTE` (desktop, optional fallback),
 `RAG_ONLY` and `PROMPT_ONLY` (not training), each with reasons, blockers, requirements ("plug in the charger") and a `ResourceEstimate`
 (estimates only; the `basis` field says from what). Recommended = the largest configuration inside the safe memory envelope.
 
@@ -70,8 +70,8 @@ or a missing training record refuses the evaluation (`HELDOUT_OVERLAP` / `DATASE
 
 ## Device snapshot keys read
 `availRamBytes`, `procMemAvailableBytes`, `lowMemory`, `lowMemoryThresholdBytes`, `freeStorageBytes`, `batteryPct`, `thermalStatus` (0..6 or name), `powerSaveMode`, and
-**`isCharging`** (also `charging`/`batteryCharging`/`plugged`). The current host `DeviceProbe` does not report charger state yet: until it does, training needs
-`TrainingSettings.ownerConfirmsPluggedIn = true` (the UI should show an explicit "I have plugged in the charger" checkbox).
+**`charging`** (the host `DeviceProbe` reports it: `BatteryManager.isCharging` or a plugged-in sticky battery intent; omitted when the platform does not answer; `isCharging`/`batteryCharging`/`plugged` are accepted too).
+When a host omits it, training needs `TrainingSettings.ownerConfirmsPluggedIn = true` (the UI then shows an explicit "I have plugged in the charger" checkbox). `ready_to_train_now` (model manager) needs `charging == true`; an unknown charger never counts as met.
 
 ## Error codes worth handling in the UI
 `ENGINE_UNAVAILABLE`, `CHAT_UNAVAILABLE`, `TRAINING_BLOCKED` (reasons list: `NOT_CHARGING`, `CHARGER_UNKNOWN`, `BATTERY_LOW`, `THERMAL`, `POWER_SAVE`, `RAM_UNKNOWN_OR_LOW`, `TOO_LARGE`, `STORAGE`,

@@ -153,6 +153,10 @@ class FakeStudioV2(private val env: Env) {
             TrainingOption(TrainingMethodKind.LOCAL_PARTIAL, "Fine-tune the last 4 layers on this phone", true, true, RunLocation.DEVICE, blockers.isEmpty(), blockers.isEmpty(), 4,
                 listOf("Fits the safe memory envelope", "Updates only the last transformer blocks, so gains are bounded"), blockers, reqs, partialEst,
                 "Changes model parameters (a patch file, base model untouched). Partial fine-tune, not full."),
+            TrainingOption(TrainingMethodKind.LOCAL_LORA, "Train a LoRA adapter on this phone", true, true, RunLocation.DEVICE, blockers.isEmpty(), false, null,
+                listOf("Base weights stay frozen: works on quantized bases and needs the least memory", "Result is a standard adapter file"), blockers, reqs,
+                ResourceEstimate(2400, 30, 90, Risk.MEDIUM, 14, 600, "ESTIMATE from parameter count, LoRA rank 8, context 512; not benchmarked"),
+                "Changes model behaviour through a LoRA adapter made on this phone; the base model is untouched. Fine-tuning can make the model forget general knowledge: run the local evaluation, which measures retention."),
             TrainingOption(TrainingMethodKind.EXTERNAL_COMPUTE, "Train on a desktop/GPU (export a job)", true, true, RunLocation.DESKTOP, base != null && env.datasetApproved(pid), false, null,
                 listOf("For jobs too big for the phone"), if (env.datasetApproved(pid)) emptyList() else listOf(Blocker("DATASET_NOT_APPROVED", "Approve the dataset first")), listOf("A desktop with llmtrainer installed"), null,
                 "Optional fallback: the phone only prepares a job package; nothing trains here."),
@@ -169,7 +173,7 @@ class FakeStudioV2(private val env: Env) {
 
     fun startLocalTraining(pid: ProjectId, s: TrainingSettings, confirmed: Boolean): StudioResult<TrainingRun> {
         if (!env.projectExists(pid)) return err(notFound("project ${pid.value}"))
-        if (s.kind != TrainingMethodKind.LOCAL_FULL && s.kind != TrainingMethodKind.LOCAL_PARTIAL)
+        if (s.kind != TrainingMethodKind.LOCAL_FULL && s.kind != TrainingMethodKind.LOCAL_PARTIAL && s.kind != TrainingMethodKind.LOCAL_LORA)
             return err(StudioError.Invalid("NOT_LOCAL_TRAINING", "${s.kind} is not a local training method"))
         val bl = trainBlockers(pid).toMutableList()
         if (s.kind == TrainingMethodKind.LOCAL_FULL) bl.add(Blocker("TOO_LARGE", "All-layer fine-tuning does not fit this phone's safe envelope; use the partial option or a desktop job"))

@@ -26,7 +26,7 @@ class LocalTrainingTest {
         assertEquals("CHAT_UNAVAILABLE", r.s.createChat(r.p, ChatTarget.BASE).err().code)
         val plan = r.s.localTrainingPlan(r.p).ok()
         assertEquals(null, plan.recommended)
-        val local = plan.options.filter { it.kind == TrainingMethodKind.LOCAL_FULL || it.kind == TrainingMethodKind.LOCAL_PARTIAL }
+        val local = plan.options.filter { it.kind == TrainingMethodKind.LOCAL_FULL || it.kind == TrainingMethodKind.LOCAL_PARTIAL || it.kind == TrainingMethodKind.LOCAL_LORA }
         assertTrue(local.all { !it.available && it.blockers.any { b -> b.code == "ENGINE_UNAVAILABLE" } })
         assertEquals("TRAINING_BLOCKED", r.s.startLocalTraining(r.p, TrainingSettings(), true).err().code)
         val methods = r.s.methodOptions(r.p).ok().associateBy { it.id }
@@ -41,7 +41,7 @@ class LocalTrainingTest {
         val r = LocalRig()
         val plan = r.s.localTrainingPlan(r.p).ok()
         val by = plan.options.associateBy { it.kind }
-        assertEquals(5, plan.options.size)
+        assertEquals(6, plan.options.size)
         assertFalse(by.getValue(TrainingMethodKind.RAG_ONLY).isTraining); assertFalse(by.getValue(TrainingMethodKind.RAG_ONLY).changesParameters)
         assertFalse(by.getValue(TrainingMethodKind.PROMPT_ONLY).isTraining)
         assertTrue(by.getValue(TrainingMethodKind.RAG_ONLY).honestyNote.contains("NOT training"))
@@ -468,6 +468,54 @@ class LocalTrainingTest {
         r.inference.onGenerate = {}
         r.s.resumeTraining(run.id).ok(); r.run()
         assertEquals(TrainingRunState.SUCCEEDED, r.s.trainingRun(run.id).ok().state)
+    }
+
+    // ---- LoRA -----------------------------------------------------------------------------------------------------------------
+
+    @Test fun loraIsOfferedHonestlyAndPassesRankAndAlphaToTheEngine() {
+        val r = LocalRig()
+        val plan = r.s.localTrainingPlan(r.p).ok()
+        val lora = plan.options.first { it.kind == TrainingMethodKind.LOCAL_LORA }
+        assertTrue(lora.isTraining && lora.changesParameters && lora.available, lora.blockers.toString())
+        assertTrue(lora.label.contains("LoRA"))
+        assertTrue(lora.estimate!!.basis.contains("LoRA rank 8"))
+        assertTrue(plan.options.filter { it.kind in setOf(TrainingMethodKind.LOCAL_FULL, TrainingMethodKind.LOCAL_PARTIAL, TrainingMethodKind.LOCAL_LORA) }
+            .all { it.honestyNote.contains("forget") }, "every parameter-changing option warns about forgetting and points at the retention evaluation")
+        val sp = r.trainToCompletion(TrainingSettings(kind = TrainingMethodKind.LOCAL_LORA, loraRank = 4, loraAlpha = 6f, learningRate = 2e-3f, trainableLastLayers = 0))
+        val seen = r.trainer.paramsSeen.last()
+        assertEquals(4, seen.loraRank); assertEquals(6f, seen.loraAlpha); assertEquals(0, seen.trainableLastLayers); assertFalse(seen.trainEmbeddings)
+        assertEquals(TrainingMethodKind.LOCAL_LORA, sp.method)
+        assertTrue(sp.statement.contains("LoRA adapter, rank 4"), sp.statement)
+        assertEquals(4, sp.config.loraRank)
+        // weight-tuning kinds never send a LoRA rank
+        r.trainToCompletion(TrainingSettings(kind = TrainingMethodKind.LOCAL_PARTIAL, loraRank = 4))
+        assertEquals(0, r.trainer.paramsSeen.last().loraRank)
+    }
+
+    @Test fun loraRankZeroMeansTheDefaultRankAndBadRanksAreRefused() {
+        val r = LocalRig()
+        r.trainToCompletion(TrainingSettings(kind = TrainingMethodKind.LOCAL_LORA, learningRate = 2e-3f))
+        assertEquals(8, r.trainer.paramsSeen.last().loraRank)
+        assertEquals("BAD_SETTINGS", r.s.startLocalTraining(r.p, TrainingSettings(kind = TrainingMethodKind.LOCAL_LORA, loraRank = 1000), true).err().code)
+        assertEquals("BAD_SETTINGS", r.s.startLocalTraining(r.p, TrainingSettings(kind = TrainingMethodKind.LOCAL_LORA, loraRank = -1), true).err().code)
+    }
+
+    @Test fun loraFitsWhereWeightTuningDoesNotAndGetsLoraDefaults() {
+        val r = LocalRig()
+        r.trainer.peakBytes = 4_000_000_000L          // base footprint alone nearly fills the safe budget: tuning layers does not fit, an adapter might
+        r.trainer.peakPerLayerBytes = 400_000_000L
+        val plan = r.s.localTrainingPlan(r.p).ok()
+        val by = plan.options.associateBy { it.kind }
+        assertFalse(by.getValue(TrainingMethodKind.LOCAL_FULL).available)
+        assertTrue(by.getValue(TrainingMethodKind.LOCAL_LORA).available)
+        assertEquals(TrainingMethodKind.LOCAL_LORA, plan.recommended)
+        assertEquals(2e-3f, plan.defaultSettings!!.learningRate)
+        assertEquals(8, plan.defaultSettings!!.loraRank)
+    }
+
+    @Test fun quantizedNamesAreRecognisedAndUnknownIsNeverGuessedAsQuantized() {
+        for (q in listOf("Q4_K_M", "Q8_0", "q4_0", "IQ4_XS")) assertTrue(isQuantizedName(q), q)
+        for (q in listOf("F16", "f32", "BF16", "unspecified", "", null)) assertFalse(isQuantizedName(q), q.toString())
     }
 }
 

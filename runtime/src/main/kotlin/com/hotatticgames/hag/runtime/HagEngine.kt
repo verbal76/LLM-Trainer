@@ -24,11 +24,15 @@ data class TrainConfig(
     val trainEmbeddings: Boolean = false,
     val checkpointEverySteps: Int = 0,
     val maxMemoryBytes: Long = 0,
+    /** > 0: train LoRA adapters of this rank with the base frozen (patch = standard llama.cpp LoRA adapter GGUF); 0 = tune base weights. */
+    val loraRank: Int = 0,
+    /** LoRA scale = alpha / rank; 0 = 2 x rank. */
+    val loraAlpha: Float = 0f,
 ) {
     internal fun toNative() = doubleArrayOf(
         nCtx.toDouble(), nBatch.toDouble(), epochs.toDouble(), learningRate.toDouble(), valFraction.toDouble(), seed.toDouble(),
         nThreads.toDouble(), trainableLastLayers.toDouble(), if (trainEmbeddings) 1.0 else 0.0,
-        checkpointEverySteps.toDouble(), maxMemoryBytes.toDouble(),
+        checkpointEverySteps.toDouble(), maxMemoryBytes.toDouble(), loraRank.toDouble(), loraAlpha.toDouble(),
     )
 }
 

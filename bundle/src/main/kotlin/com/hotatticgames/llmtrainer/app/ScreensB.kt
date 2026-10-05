@@ -60,7 +60,10 @@ internal fun acquireScreen(c: Ctl, pid: String?, mid: String?, vid: String?, col
     val opsBox = u.col()
     col.addView(planBox)
     col.addView(u.button("Import this model from a file", "btn:import-model", false) {
-        c.pick(Pickers.openOne()) { data ->
+        val hook = StudioTestHooks.modelFile()
+        if (hook != null) c.call({ c.studio.importModelFile(vid, hook) }, sticky = true) { _ ->
+            c.success("Import started."); refreshOps(c, opsBox)
+        } else c.pick(Pickers.openOne()) { data ->
             val uri = Pickers.uris(data).firstOrNull()
             if (uri != null) {
                 val cr = c.contentResolver()
@@ -395,10 +398,15 @@ internal fun methodScreen(c: Ctl, pid: String?, col: LinearLayout) {
     val u = c.ui
     if (pid == null) { missing(c, col, "project"); return }
     val warn = u.card(8)
-    warn.addView(u.tv("The phone does not train models in this version.", 15f, u.warn, true))
-    warn.addView(u.tv("Adapter training runs on a desktop/GPU: this app prepares a training job package for it. A reference package " +
-        "(retrieval over your sources) and prompt instructions are NOT training and are labelled that way.", 13f, u.ink, topDp = 4))
+    warn.addView(u.tv("What counts as training", 15f, u.warn, true))
+    val warnText = u.tv("A reference package (retrieval over your sources) and prompt instructions are NOT training and are labelled that way. Only a run that changes the model's parameters is training.", 13f, u.ink, topDp = 4)
+    warnText.tag = "method-warning"
+    warn.addView(warnText)
     col.addView(warn)
+    c.bg({ c.studio.engineStatus() }) { es ->
+        warn.addView(u.tv(if (es.trainingAvailable) "This phone can train when a base model is installed, the dataset is approved and the phone is charging and cool (see 'Train on this phone'). A desktop job is an optional fallback you choose."
+        else "Training on this phone is unavailable on this install: ${es.trainingReason ?: "no native engine"}. The desktop job is the way to train.", 12f, if (es.trainingAvailable) u.muted else u.bad, topDp = 6))
+    }
     c.call({ c.studio.methodOptions(ProjectId(pid)) }) { opts ->
         for (o in opts) {
             val oc = u.card(10)
@@ -424,7 +432,7 @@ internal fun methodScreen(c: Ctl, pid: String?, col: LinearLayout) {
 // ---------------------------------------------------------------------------------------------------------
 // Export / packages
 // ---------------------------------------------------------------------------------------------------------
-private fun showExported(c: Ctl, p: ExportedPackage, uri: android.net.Uri?, box: LinearLayout) {
+internal fun showExported(c: Ctl, p: ExportedPackage, uri: android.net.Uri?, box: LinearLayout) {
     val u = c.ui
     box.removeAllViews()
     val pc = u.card(12)
@@ -471,9 +479,12 @@ internal fun evalScreen(c: Ctl, pid: String?, col: LinearLayout) {
     val project = ProjectId(pid)
     val result = u.col()
     val view = u.col()
+    val localBox = u.col()
+    col.addView(localBox)
+    localEvalSection(c, project, localBox)
     val ec = u.card(8)
-    ec.addView(u.tv("Evaluation runs on the desktop", 15f, u.warn, true))
-    ec.addView(u.tv("This app version has no inference runtime, so the phone cannot run a model. Export the held-out questions (never trained on), run `llmtrainer evaluate` on the desktop, then import the results package here.", 12f, u.ink, topDp = 4))
+    ec.addView(u.tv("Evaluate on a desktop (optional)", 15f, u.ink, true))
+    ec.addView(u.tv("Export the held-out questions (never trained on), run `llmtrainer evaluate` on the desktop, then import the results package here.", 12f, u.ink, topDp = 4))
     ec.addView(u.button("Export held-out evaluation set", "btn:export-heldout") {
         c.runExport("${project.value}-heldout-eval.zip", "application/zip", { s, o -> s.exportHeldOutEvalSet(project, o) }) { p, uri -> showExported(c, p, uri, result); c.success("Held-out set exported.") }
     })
@@ -495,7 +506,7 @@ internal fun evalScreen(c: Ctl, pid: String?, col: LinearLayout) {
     c.call({ c.studio.evaluation(project) }) { ev -> if (ev != null) showEvaluation(c, ev, view) else view.addView(u.tv("No evaluation results imported yet.", 13f, u.muted, topDp = 10)) }
 }
 
-private fun showEvaluation(c: Ctl, ev: EvaluationView, box: LinearLayout) {
+internal fun showEvaluation(c: Ctl, ev: EvaluationView, box: LinearLayout, local: Boolean = false) {
     val u = c.ui
     box.removeAllViews()
     if (ev.isStub) {
@@ -526,7 +537,8 @@ private fun showEvaluation(c: Ctl, ev: EvaluationView, box: LinearLayout) {
         for (x in ev.caveats) cv.addView(u.tv("- $x", 12f, u.warn))
         box.addView(cv)
     }
-    box.addView(u.tv("Imported ${Date(ev.importedAt)}. Shown exactly as supplied by the evaluation run; this app does not recompute them.", 11f, u.muted, topDp = 6))
+    box.addView(u.tv(if (local) "Measured on this phone ${Date(ev.importedAt)} on held-out TEST text. Heuristic lexical and numeric metrics, not human judgement."
+    else "Imported ${Date(ev.importedAt)}. Shown exactly as supplied by the evaluation run; this app does not recompute them.", 11f, u.muted, topDp = 6))
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -621,6 +633,12 @@ internal fun updatesScreen(c: Ctl, col: LinearLayout) {
     })
     uc.addView(restart)
     col.addView(uc)
+    val idc = u.card(10)
+    idc.addView(u.tv("IDENTITY", 12f, u.accent, true))
+    val idText = u.mono("Loading...", 12f, u.ink)
+    idText.tag = "identity-text"
+    idc.addView(idText)
+    col.addView(idc)
     val dc = u.card(10)
     dc.addView(u.tv("DIAGNOSTICS (long-press to copy)", 12f, u.accent, true))
     val diag = u.mono("Loading...", 11f, u.muted)
@@ -630,8 +648,11 @@ internal fun updatesScreen(c: Ctl, col: LinearLayout) {
     fun loadDiag() {
         // Lazy: the v1 host reports runningSource "none" while createContentView runs, so read after attach.
         c.bg({
-            try { JSONObject(c.host.diagnosticsJson()).toString(2) } catch (t: Throwable) { "Diagnostics unavailable: ${t.message}" }
-        }) { diag.text = it }
+            try {
+                val o = JSONObject(c.host.diagnosticsJson())
+                Pair(o.optString("identityBlock", ""), o.toString(2))
+            } catch (t: Throwable) { Pair("", "Diagnostics unavailable: ${t.message}") }
+        }) { (block, json) -> idText.text = if (block.isNotEmpty()) block else "Identity unavailable."; diag.text = json }
     }
     c.resumeHook = { loadDiag() }
     col.post { loadDiag() }

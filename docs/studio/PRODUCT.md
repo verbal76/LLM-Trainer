@@ -44,8 +44,8 @@ operations) so process death never loses a project. No global mutable model stat
 ## OTA boundary of the installed v1 host (HARD constraints)
 * Bundle = pure Kotlin `classes*.dex` + assets, built with Kotlin stdlib (host-provided), platform `android.*` and platform
   `org.json`. No native code, no new manifest entries (no new activities/services/permissions/intent filters).
-* Host API level 1 only: `HostServices` {hostVersionName, hostApiLevel, nativeAbi, nativeRuntimeId, diagnosticsJson(),
-  deviceSnapshotJson(), checkForUpdates(cb), restartApp()}. The Activity passed to `createContentView(context)` IS the host
+* Host API level 1 surface: `HostServices` {hostVersionName, hostApiLevel, nativeAbi, nativeRuntimeId, diagnosticsJson(),
+  deviceSnapshotJson(), checkForUpdates(cb), restartApp()}; native v2 (level 2) adds the guarded `engine` / `nativeVersion` / `buildSha` / `engineUnavailableReason` (see docs/v2/UI_AND_ADAPTER.md). The Activity passed to `createContentView(context)` IS the host
   Activity, so the bundle may use platform APIs through it (files, ContentResolver, startActivity, network).
 * `INTERNET` permission exists in the host manifest. There is NO storage permission; use the Storage Access Framework.
 * Activity results are NOT forwarded to the bundle. File pick/create results must be received via a bundle-owned

@@ -46,6 +46,9 @@ class FakeStudio(seedSampleData: Boolean = true, preinstallBaseModels: Boolean =
     private val projects = LinkedHashMap<String, P>()
     private val ops = LinkedHashMap<String, Operation>()
 
+    /** Scripted model manager over this fake (UI development and instrumented tests). */
+    val modelsApi: ModelsApi by lazy { FakeModelsApi(this) }
+
     /** Scripted v2 state and knobs (engineAvailable, charging, batteryPercent, thermal, ...). */
     val v2: FakeStudioV2 by lazy { FakeStudioV2(object : FakeStudioV2.Env {
         override fun now() = this@FakeStudio.now()
