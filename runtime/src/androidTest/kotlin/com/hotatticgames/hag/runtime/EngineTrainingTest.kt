@@ -131,25 +131,34 @@ class EngineTrainingTest {
         val ws = workspace("resume")
         val work = File(ws, "work").absolutePath
         val patch = File(ws, "specialist.patch")
-        var steps = 0
+        var lastStep = 0
+        var reports = 0
+        var finishedWithoutCancel = false
         try {
             e.train(base.absolutePath, facts, config(checkpointEvery = 2), work, patch.absolutePath) { ev ->
-                if (ev.phase == TrainEvent.TRAIN) steps++
-                steps >= 6 // cancel after a few reports; "kill" in-process
+                reports++
+                if (ev.phase == TrainEvent.TRAIN) lastStep = maxOf(lastStep, ev.step)
+                if (reports % 5 == 1) Log.i(Fixtures.TAG, "resume-test run 1: $ev")
+                lastStep >= 6 // cancel once real optimisation steps have been reported; "kill" in-process
             }
-            fail("training should have been cancelled")
+            finishedWithoutCancel = true
         } catch (x: HagException) {
-            assertTrue("code=${x.code} ${x.message}", x.cancelled)
+            Log.i(Fixtures.TAG, "resume-test run 1 ended: code=${x.code} cancelled=${x.cancelled} msg=${x.message} lastStep=$lastStep reports=$reports")
+            assertTrue("run 1 failed for a reason other than cancel: code=${x.code} ${x.message}", x.cancelled)
         }
+        val files = File(work).walkTopDown().filter { it.isFile }.map { "${it.name}(${it.length()})" }.toList()
+        Log.i(Fixtures.TAG, "resume-test work dir after cancel: $files; patch.exists=${patch.exists()}")
+        assertFalse("training finished before it could be cancelled (lastStep=$lastStep, reports=$reports)", finishedWithoutCancel)
         assertFalse("a cancelled run must not leave a finished patch", patch.exists())
-        assertTrue("no checkpoint files in work dir", File(work).walkTopDown().any { it.isFile })
+        assertTrue("no checkpoint files in work dir (lastStep=$lastStep, reports=$reports)", files.isNotEmpty())
 
         var resumedFrom = 0
         e.train(base.absolutePath, facts, config(checkpointEvery = 2), work, patch.absolutePath) { ev ->
             resumedFrom = maxOf(resumedFrom, ev.resumedFromStep)
             false
         }
-        assertTrue("second run did not resume from the checkpoint", resumedFrom > 0)
+        Log.i(Fixtures.TAG, "resume-test run 2 resumedFrom=$resumedFrom")
+        assertTrue("second run did not resume from the checkpoint (files after cancel: $files)", resumedFrom > 0)
         assertTrue(patch.isFile && patch.length() > 0)
     }
 
