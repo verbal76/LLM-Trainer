@@ -72,7 +72,7 @@ internal fun extOf(fileName: String): String {
  */
 object Extractors {
     private val all: List<Extractor> = listOf(
-        MarkdownExtractor(), PlainTextExtractor(),
+        MarkdownExtractor(), PlainTextExtractor(), DelimitedExtractor(), JsonExtractor(),
     )
 
     fun forFile(fileName: String, mime: String?): Extractor? = all.firstOrNull { it.supports(fileName, mime) }
