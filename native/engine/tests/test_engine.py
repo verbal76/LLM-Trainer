@@ -140,6 +140,12 @@ def test_version_and_system_info():
     assert s["abi"] in ("x86_64", "arm64-v8a", "armeabi-v7a", "x86") and s["n_cores"] >= 1 and isinstance(s["cpu_features"], list)
 
 
+def test_engine_version_matches_llama_pin():
+    pin = open(os.path.join(HERE, "..", "..", "llama.cpp.pin")).read().split()
+    sha = [w for w in pin if len(w) == 40][0]
+    assert "llama.cpp " + sha[:7] in cli("version")[1]["version"]
+
+
 def test_model_load_info_and_errors():
     m = make_model("tiny.gguf", "--preset", "tiny")
     _, js, _ = cli("info", m)

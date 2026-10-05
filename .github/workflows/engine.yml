@@ -77,7 +77,7 @@ jobs:
       - name: Throughput / memory table (x86 CPU numbers)
         if: always()
         run: |
-          python native/engine/tools/bench_engine.py --cli build/engine/hag_cli --out build/engine/test-tmp/bench --sizes 1m,5m,15m,40m,135m --threads 4 || true
+          python native/engine/tools/bench_engine.py --cli build/engine/hag_cli --out build/engine/test-tmp/bench --sizes 1m,5m,15m,40m,135m --threads 4 --quant || true
 
       - name: Upload measurements and logs
         if: always()
@@ -152,7 +152,7 @@ jobs:
           ls -la models
           echo "MODEL=$(ls models/*.gguf | head -n1)" >> "$GITHUB_ENV"
 
-      - name: Real inference + short real training + reload + evaluation${{ matrix.resume && ' + SIGKILL/resume' || '' }}
+      - name: Real inference, short real training, reload, evaluation (and SIGKILL/resume where enabled)
         run: |
           python native/engine/tests/real_model_check.py --cli bin/hag_cli --model "$MODEL" --label "${{ matrix.label }}" --out out \
             --prose-dir native/.deps/llama.cpp/docs --layers ${{ matrix.layers }} --epochs ${{ github.event.inputs.real_epochs || '20' }} \
