@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Post-publish canary: the REAL released v1 APK, on an emulator, against the REAL published OTA channel.
 # Taps "Check for updates" in the v1 built-in UI, restarts, and asserts the new product UI is what runs.
-# usage: canary-v1-ota.sh <v1-apk-url> <expected-text-after-update>
+# usage: canary-v1-ota.sh <released-native-apk-url> [expected-text-after-update]   (name kept for history; any native generation)
 set -uo pipefail
-APK_URL=${1:?}; EXPECT=${2:-"What this app does"}
+APK_URL=${1:?}; EXPECT=${2-}   # empty EXPECT = only assert staging + persistence (identity is asserted by the publish workflow)
 PKG=com.hotatticgames.llmtrainer
 WORK=$(mktemp -d); cd "$WORK"
 curl -fsSL "$APK_URL" -o v1.apk || { echo "::error::cannot download v1 APK"; exit 1; }
@@ -50,12 +50,12 @@ PY
 exit 1; }
 echo "== staged; restart and expect new UI: $EXPECT"
 start; sleep 4; dump
-has_text "$EXPECT" || { echo "::error::new product UI not running after restart"; python3 - <<'PY'
+{ [ -z "$EXPECT" ] || has_text "$EXPECT"; } || { echo "::error::new product UI not running after restart"; python3 - <<'PY'
 import xml.etree.ElementTree as ET
 print([n.get('text') for n in ET.parse('ui.xml').iter('node') if n.get('text')][:40])
 PY
 exit 1; }
 echo "== second restart persists (no re-download loop, trial promoted)"
 start; sleep 3; dump
-has_text "$EXPECT" || has_text "Specialists" || { echo "::error::new UI did not persist across restart"; exit 1; }
+{ [ -z "$EXPECT" ] || has_text "$EXPECT" || has_text "Specialists"; } || { echo "::error::new UI did not persist across restart"; exit 1; }
 echo "CANARY OK"

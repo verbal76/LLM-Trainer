@@ -23,6 +23,9 @@ data class DiagnosticsReport(
     val pendingSlot: String?,
     val quarantined: Map<String, String>,
     val recentHistory: List<HistoryEvent>,
+    /** Additive: the five-identity vocabulary of docs/VERSIONING.md. */
+    val identity: VersionIdentity,
+    val identityBlock: String,
 )
 
 object Diagnostics {
@@ -38,6 +41,14 @@ object Diagnostics {
         host.capabilities.sorted(), host.sdkInt, host.channel, host.builtinBundleVersion,
         runningSource, runningVersion, runningName, runningSlot,
         state.active, state.lastKnownGood, state.pending, state.quarantined, state.history.takeLast(20),
+        identityOf(host, runningSource, runningVersion, runningName),
+        identityOf(host, runningSource, runningVersion, runningName).block(),
+    )
+
+    fun identityOf(host: HostInfo, runningSource: String, runningVersion: Int, runningName: String) = VersionIdentity(
+        nativeVersion = host.hostVersionName, appVersion = runningName, otaSequence = runningVersion,
+        nativeAbi = host.nativeAbi, nativeRuntimeId = host.nativeRuntimeId, sourceSha = host.sourceSha,
+        runningSource = runningSource,
     )
 
     fun toJson(r: DiagnosticsReport): String = OtaJson.encodeToString(DiagnosticsReport.serializer(), r)

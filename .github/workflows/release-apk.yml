@@ -1,34 +1,76 @@
 name: Release APK
 
-# Manual, owner-authorized only. Builds, qualifies and publishes LLM-Trainer-v<version>.apk as a GitHub Release asset.
+# NATIVE APK RELEASE (docs/RELEASE.md, docs/VERSIONING.md). Owner-authorized only:
+#   - push of branch `release/v<N>`, or
+#   - workflow_dispatch with version=<N>.
+# Builds from the exact triggering SHA, runs the full gate list, and only then publishes GitHub Release `v<N>`
+# titled "LLM Trainer v<N>" with exactly two assets: LLM-Trainer-v<N>.apk and LLM-Trainer-v<N>.apk.sha256.
+# An application-layer OTA is a different pipeline (publish-ota.yml) and never creates a native version.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Host release number (integer), e.g. 1 -> tag v1, LLM-Trainer-v1.apk"
+        description: "Native version N (integer): versionCode=versionName=N, tag vN, LLM-Trainer-vN.apk"
         required: true
       prerelease:
-        description: "Mark as pre-release"
+        description: "Mark the GitHub Release as pre-release (default: no)"
         type: boolean
-        default: true
-  # Owner-authorized alternative trigger: pushing branch `release/v<N>` runs the same gated path
-  # (the workflow publishes the real release tag `v<N>` itself, only after every gate passes).
+        default: false
+      extra_limits:
+        description: "Extra known limits to add to the release notes (optional, one line)"
+        required: false
   push:
     branches: ["release/v*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_SIGNER_SHA256: "C9:02:BC:41:93:82:0D:F5:92:E5:43:8C:5A:F5:FA:93:66:9F:34:A9:FC:2B:55:BE:F0:81:C9:F2:F5:74:11:C5"
+
 jobs:
-  release:
+  # ---------------------------------------------------------------------------------------------------------------
+  prepare:
+    name: Resolve version, check secrets and tag
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+      short: ${{ steps.v.outputs.short }}
+      abi: ${{ steps.v.outputs.abi }}
     steps:
-      - name: Resolve version
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.sha }}", fetch-depth: 0 }
+      - id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then V="${{ inputs.version }}"; else V="${GITHUB_REF_NAME#release/v}"; fi
-          echo "VERSION=$V" >> "$GITHUB_ENV"
-      - name: Validate inputs and secrets
+          if [ -n "$INPUT_VERSION" ]; then V="$INPUT_VERSION"; else V="${GITHUB_REF_NAME#release/v}"; fi
+          [[ "$V" =~ ^[0-9]+$ ]] || { echo "::error::version must be an integer, got '$V'"; exit 1; }
+          SHA=$(git rev-parse HEAD); SHORT=$(git rev-parse --short=7 HEAD)
+          # native version N must exist in ota/native-map.json; its key is the nativeAbi this APK must carry
+          ABI=$(python3 - "$V" <<'PY'
+          import json, sys
+          m = json.load(open('ota/native-map.json'))
+          hits = [k for k, v in m.items() if not k.startswith('_') and str(v) == sys.argv[1]]
+          print(hits[0] if len(hits) == 1 else '')
+          PY
+          )
+          [ -n "$ABI" ] || { echo "::error::native version $V has no (unique) nativeAbi in ota/native-map.json"; exit 1; }
+          grep -q "buildConfigField(\"int\", \"NATIVE_ABI\", \"$ABI\")" app/build.gradle.kts \
+            || { echo "::error::app/build.gradle.kts NATIVE_ABI is not $ABI (native-map says native $V = abi $ABI)"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"; echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"; echo "abi=$ABI" >> "$GITHUB_OUTPUT"
+          echo "NATIVE APK RELEASE v$V from $SHA (abi $ABI)"
+      - name: Tag must not already exist
+        env: { V: "${{ steps.v.outputs.version }}" }
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null 2>&1; then echo "::error::tag v$V exists"; exit 1; fi
+      - name: Signing secrets present
         env:
           A: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           B: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -36,22 +78,105 @@ jobs:
           D: ${{ secrets.ANDROID_KEY_PASSWORD }}
           E: ${{ secrets.OTA_SIGNING_KEY }}
         run: |
-          [[ "$VERSION" =~ ^[0-9]+$ ]] || { echo "version must be an integer"; exit 1; }
-          for v in A B C D E; do [ -n "${!v}" ] || { echo "::error::Missing signing secret(s). Add ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, OTA_SIGNING_KEY (see docs/OTA.md)."; exit 1; }; done
+          for v in A B C D E; do [ -n "${!v}" ] || { echo "::error::Missing signing secret(s): ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, OTA_SIGNING_KEY (docs/RELEASE.md)."; exit 1; }; done
+
+  # ---------------------------------------------------------------------------------------------------------------
+  unit:
+    name: Unit tests (all modules) + native engine tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
       - uses: actions/checkout@v4
-      - name: Tag must not already exist
-        run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then echo "::error::tag v$VERSION exists"; exit 1; fi
+        with: { ref: "${{ needs.prepare.outputs.sha }}" }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - uses: android-actions/setup-android@v3
-        with:
-          packages: "platforms;android-36 build-tools;36.0.0"
+        with: { packages: "platforms;android-36 build-tools;36.0.0" }
       - uses: gradle/actions/setup-gradle@v4
-
-      - name: Unit tests
+      - name: JVM module tests
         run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
+      - name: "Native engine tests (runtime engineer owns tools/ci/native-engine-tests.sh; it must exist)"
+        run: |
+          [ -x tools/ci/native-engine-tests.sh ] || { echo "::error::tools/ci/native-engine-tests.sh is missing: a native release cannot skip the engine tests"; exit 1; }
+          tools/ci/native-engine-tests.sh
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Python factory tests
+        working-directory: factory
+        run: |
+          pip install -e ".[test]"
+          python -m pytest -q
+      - name: Version-identity rules (native-map) self-test
+        run: |
+          python3 tools/ci/check-native-map.py ota/native-map.json 2 2.1
+          if python3 tools/ci/check-native-map.py ota/native-map.json 2 1.1 2>/dev/null; then echo "::error::1.1 must be rejected for abi 2"; exit 1; fi
+          if python3 tools/ci/check-native-map.py ota/native-map.json 2 2.0 2>/dev/null; then echo "::error::2.0 must be rejected for OTA"; exit 1; fi
 
+  # ---------------------------------------------------------------------------------------------------------------
+  emulator:
+    name: Emulator suites (API ${{ matrix.api }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [34, 36]
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ needs.prepare.outputs.sha }}" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Ephemeral qualification key (tests only; never the production key)
+        run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
+      - name: Build qualification fixtures
+        run: tools/ci/build-fixtures.sh "$RUNNER_TEMP/ci-ota.key" "$PWD/fixtures"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Instrumented suites (OTA qualification, splash, restore guard, studio flow)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest -PgitSha=${{ needs.prepare.outputs.short }} -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci -PotaFixturesDir=$PWD/fixtures; rc=$?
+            adb logcat -d -s HagOta:V HagHost:V AndroidRuntime:E | tail -120
+            exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-reports-api${{ matrix.api }}
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------------------------------------------
+  build:
+    name: Build and verify the release APK (real keys)
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      apk_sha256: ${{ steps.name.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ needs.prepare.outputs.sha }}" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Canonical studio logo
+        run: echo "e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e  branding/hot-attic-games/studio-logo.png" | sha256sum -c -
       - name: Restore signing material
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
@@ -63,52 +188,164 @@ jobs:
           echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
           echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
           echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-
-      # ---- qualification gate with an ephemeral key + fixtures (same tests as CI) ----
-      - name: Ephemeral qualification key
-        run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
-      - name: Build qualification fixtures
+      - name: Build release APK from the exact SHA
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHORT: ${{ needs.prepare.outputs.short }}
         run: |
-          K="-PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaKeyId=ci"
-          F="$PWD/fixtures/ota-fixtures"; mkdir -p "$F"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=2 -PbundleOut="$F/bundle-2-good.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=3 -PfaultMode=selftest_fails -PbundleOut="$F/bundle-3-selftest.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=4 -PnativeAbi=2 -PbundleOut="$F/bundle-4-abi2.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=5 -PfaultMode=entry_throws -PbundleOut="$F/bundle-5-throws.hagb"
+          ./gradlew --no-daemon :app:assembleRelease \
+            -PhostVersionCode=$VERSION -PhostVersionName=$VERSION -PgitSha=$SHORT \
+            -PotaPrivateKeyFile=$RUNNER_TEMP/ota.key
+      - name: "Name + verify the artifact (signer, version, sdk levels, logo, built-in bundle, native libs)"
+        id: name
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          NATIVE_ABI: ${{ needs.prepare.outputs.abi }}
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          cp "$APK" "LLM-Trainer-v$VERSION.apk"
+          export EXPECT_SIGNER_SHA256=$(echo "$EXPECTED_SIGNER_SHA256" | tr -d ':' | tr 'A-F' 'a-f')
+          tools/ci/verify-apk.sh "LLM-Trainer-v$VERSION.apk" ota/keys/prod.pub k1 "$VERSION" \
+            --version-code "$VERSION" --pin-signer --require-native-libs
+          # host abi compiled into the APK must equal the abi the built-in bundle was verified against
+          grep -rh "NATIVE_ABI = $NATIVE_ABI;" app/build/generated/source/buildConfig/release/ >/dev/null \
+            || { echo "::error::BuildConfig.NATIVE_ABI != $NATIVE_ABI"; exit 1; }
+          sha256sum "LLM-Trainer-v$VERSION.apk" | tee "LLM-Trainer-v$VERSION.apk.sha256"
+          echo "sha256=$(sha256sum "LLM-Trainer-v$VERSION.apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # Identity facts for the release notes
+          BC=$(find app/build/generated/source/buildConfig/release -name BuildConfig.java | head -1)
+          RT=$(grep -o 'NATIVE_RUNTIME_ID = "[^"]*"' "$BC" | sed 's/.*= "//; s/"$//')
+          python3 - "$RT" > identity.env <<'PY'
+          import json, sys
+          m = json.load(open('chk/builtin-manifest.json'))
+          print('APP_VERSION=%s' % m['bundleVersionName'])
+          print('OTA_SEQ=%s' % m['bundleVersion'])
+          print('NATIVE_ABI_BUNDLE=%s' % m['requires']['nativeAbi'])
+          print('RUNTIME_ID=%s' % sys.argv[1])
+          PY
+          cat identity.env
+      - name: "16 KB page-size compatibility (runtime engineer owns tools/ci/check-16kb.sh; it must exist)"
+        env: { VERSION: "${{ needs.prepare.outputs.version }}" }
+        run: |
+          [ -x tools/ci/check-16kb.sh ] || { echo "::error::tools/ci/check-16kb.sh is missing: a native release cannot skip the 16 KB check"; exit 1; }
+          tools/ci/check-16kb.sh "LLM-Trainer-v$VERSION.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: |
+            LLM-Trainer-v${{ needs.prepare.outputs.version }}.apk
+            LLM-Trainer-v${{ needs.prepare.outputs.version }}.apk.sha256
+            identity.env
+            signer.txt
+            badging.txt
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------------------------------------
+  upgrade:
+    name: Install-over test (published v1 -> candidate)
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ needs.prepare.outputs.sha }}" }
+      - uses: android-actions/setup-android@v3
+        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+      - uses: actions/download-artifact@v4
+        with: { name: release-apk, path: cand }
+      - name: Download the PUBLISHED v1 APK
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download v1 -p 'LLM-Trainer-v1.apk' -D prev
+          ls -l prev cand
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: OTA qualification on emulator
+      - name: adb install -r over the previous APK
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          WANT_ABI: ${{ needs.prepare.outputs.abi }}
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           disable-animations: true
           script: >
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest
-            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
-            -PotaFixturesDir=$PWD/fixtures
+            bash -c 'source cand/identity.env &&
+            tools/ci/install-over-test.sh prev/LLM-Trainer-v1.apk cand/LLM-Trainer-v${{ needs.prepare.outputs.version }}.apk
+            ${{ needs.prepare.outputs.version }} $OTA_SEQ'
 
-      # ---- real release build ----
-      - name: Build release APK (real keys)
+  # ---------------------------------------------------------------------------------------------------------------
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, unit, emulator, build, upgrade]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ needs.prepare.outputs.sha }}" }
+      - uses: actions/download-artifact@v4
+        with: { name: release-apk, path: out }
+      - name: Re-verify the hash that is about to be published
+        env: { V: "${{ needs.prepare.outputs.version }}" }
         run: |
-          ./gradlew --no-daemon :app:assembleRelease \
-            -PhostVersionCode=$VERSION -PhostVersionName=$VERSION \
-            -PotaPrivateKeyFile=$RUNNER_TEMP/ota.key
-      - name: Name + verify artifact
+          cd out
+          sha256sum -c "LLM-Trainer-v$V.apk.sha256"
+          [ "$(sha256sum "LLM-Trainer-v$V.apk" | cut -d' ' -f1)" = "${{ needs.build.outputs.apk_sha256 }}" ] || { echo "::error::artifact hash changed between build and publish"; exit 1; }
+      - name: Tag must still not exist
+        env: { V: "${{ needs.prepare.outputs.version }}" }
         run: |
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          cp "$APK" "LLM-Trainer-v$VERSION.apk"
-          tools/ci/verify-apk.sh "LLM-Trainer-v$VERSION.apk" ota/keys/prod.pub k1 "$VERSION"
-          sha256sum "LLM-Trainer-v$VERSION.apk" | tee "LLM-Trainer-v$VERSION.apk.sha256"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null 2>&1; then echo "::error::tag v$V exists"; exit 1; fi
+      - name: Write release notes
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          SHORT: ${{ needs.prepare.outputs.short }}
+          ABI: ${{ needs.prepare.outputs.abi }}
+          APK_SHA: ${{ needs.build.outputs.apk_sha256 }}
+          EXTRA: ${{ inputs.extra_limits }}
+        run: |
+          source out/identity.env
+          cat > notes.md <<EOF
+          # NATIVE APK RELEASE: LLM Trainer v$V
+
+          This is a **native APK release** (a new installable generation). It is not an application-layer OTA update.
+          Install it over the previous version; the signing identity is unchanged, so Android upgrades in place.
+
+          | Identity | Value |
+          |---|---|
+          | Native version | **$V** (versionCode $V, versionName $V) |
+          | Application version | **$APP_VERSION** (the layer built into this APK) |
+          | OTA sequence | #$OTA_SEQ (engineering) |
+          | Runtime / ABI | ABI $ABI, $RUNTIME_ID |
+          | Source | \`$SHORT\` (\`$SHA\`) |
+          | Signer SHA-256 | $EXPECTED_SIGNER_SHA256 |
+          | APK SHA-256 | \`$APK_SHA\` |
+
+          Assets: \`LLM-Trainer-v$V.apk\` and \`LLM-Trainer-v$V.apk.sha256\`.
+
+          Gates passed before publishing: JVM module tests, native engine tests, factory tests, emulator suites on API 34 and 36,
+          16 KB page-size check, APK verification (package, versionCode/versionName $V, minSdk 26, targetSdk 36, permanent signer,
+          canonical studio-logo hash, built-in bundle signature, arm64-v8a native libs), and an install-over upgrade from the published v1 APK.
+
+          ## Known limits
+          - Application updates (OTA) after this release are named $V.1, $V.2, ... and never change this native version; a newer native APK is never installed automatically.
+          - A newer native generation is only offered as "needs a new APK": install it manually.
+          - Hot Attic Games splash is shown on cold start only; the system start window before it is a plain neutral background.
+          - Device-fit recommendations are estimates until benchmarked on the actual device.
+          ${EXTRA:+- $EXTRA}
+          EOF
+          cat notes.md
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           PRE: ${{ inputs.prerelease }}
+          V: ${{ needs.prepare.outputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           FLAGS=""; [ "$PRE" = "true" ] && FLAGS="--prerelease"
-          gh release create "v$VERSION" "LLM-Trainer-v$VERSION.apk" "LLM-Trainer-v$VERSION.apk.sha256" \
-            --target "$GITHUB_SHA" --title "LLM Trainer v$VERSION" $FLAGS \
-            --notes "LLM Trainer v$VERSION (host/APK release $VERSION). Contains the Hot Attic Games splash and the OTA/update system. Commit $GITHUB_SHA. Verify with the attached .sha256."
+          gh release create "v$V" "out/LLM-Trainer-v$V.apk" "out/LLM-Trainer-v$V.apk.sha256" \
+            --target "$SHA" --title "LLM Trainer v$V" --notes-file notes.md $FLAGS
+          # Exactly the two assets, nothing else.
+          gh release view "v$V" --json assets -q '.assets[].name' | sort | tee assets.txt
+          printf 'LLM-Trainer-v%s.apk\nLLM-Trainer-v%s.apk.sha256\n' "$V" "$V" | sort | diff - assets.txt

@@ -80,7 +80,7 @@ class StudioUiFlowTest {
     @Before fun stageFixtureBundle() {
         wipe()
         // Stage v2 into the SAME root the real HostActivity uses (filesDir/ota); the Activity then boots it as a trial.
-        val rt = HostRuntime(target, File(target.filesDir, "ota"), ChannelFetcher(mapOf("good" to fixture("bundle-2-good"))))
+        val rt = HostRuntime(target, File(target.filesDir, "ota"), ChannelFetcher(mapOf("good" to fixture("bundle-4-good"))))
         var status: UpdateStatus? = null
         val latch = CountDownLatch(1)
         instr.runOnMainSync { rt.checkForUpdates { status = it; latch.countDown() } }

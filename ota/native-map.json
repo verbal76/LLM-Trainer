@@ -1,0 +1,5 @@
+{
+  "_comment": "nativeAbi -> native version (APK generation). The major of an OTA bundleVersionName must equal the native version of the bundle's requires.nativeAbi. See docs/VERSIONING.md. Add a line when a new native APK generation ships.",
+  "1": 1,
+  "2": 2
+}

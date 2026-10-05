@@ -22,7 +22,11 @@ A bundle declares `requires` in its signed manifest. It is installable only if *
    older bundle is incompatible *by declaration* and is rejected instead of crashing. Bundle builds default
    `max` to the top of their major.
 2. **Native ABI exact match** – `nativeAbi == host.NATIVE_ABI`. Anything that changes JNI signatures or the shipped
-   `.so` set bumps it. Bundles never contain native code: `.so`, `lib/**`, `.jar`, `.apk` are refused by the
+   `.so` set bumps it. Exactness holds in both directions and everywhere: a host with ABI *n* never stages a bundle for
+   ABI *n+1* (reported as "needs new APK", never downloaded) and ignores bundles for ABI *n-1* (obsolete for it; a new APK
+   could not help them). `UpdateStore.stage` re-checks the ABI, slots record the ABI they were built for, and
+   `reconcileBuiltin(…, hostNativeAbi)` drops slots of another ABI left on disk by an in-place APK upgrade
+   (state written by v1 hosts has no ABI field and is ABI 1 by definition). Bundles never contain native code: `.so`, `lib/**`, `.jar`, `.apk` are refused by the
    format itself even if signed.
 3. **Capabilities** – every capability the bundle lists must be advertised by the host (e.g. `core.v1`,
    `device.snapshot.v1`, later `inference.gguf.v1`). This lets bundles depend on a *feature*, not an exact APK,
@@ -65,13 +69,24 @@ launch: pending(trial) -> active -> lastKnownGood -> built-in bundle (in APK) ->
 * Known limit: a bundle that hangs the main thread without crashing is only caught once the OS/user kills the app
   (the boot counter then rolls it back after 2–3 launches).
 
+## Channel fetch semantics
+| Channel index response | Result | User-visible status |
+|---|---|---|
+| HTTP 404 (channel not published yet) | `UpToDate(channelPublished=false)` | "Up to date. No update channel is published yet, so there is nothing newer to install." |
+| 200, nothing newer / only obsolete-ABI bundles | `UpToDate` | "Up to date." |
+| Offline / DNS / timeout / TLS (`IOException`) | `Failed(NETWORK_UNAVAILABLE)` | "Could not reach the update server (offline or network error)…" |
+| HTTP 5xx | `Failed(SERVER_ERROR)` | "The update server had a problem (HTTP 5xx)…" |
+| Other HTTP (401/403/410/429…) | `Failed(CHANNEL_HTTP_ERROR)` | "Update check failed: …" |
+| Unparseable / identity mismatch | `Failed(INDEX_INVALID)` | "Update check failed: …" |
+
 ## Diagnostics
 In-app "Diagnostics" (and safe mode) show APK version, host API level, native ABI/runtime id, capabilities,
-running source/slot/version, active/LKG/pending slots, quarantine reasons, last 20 update events. Logcat tag
+the five-identity block (native / application / OTA sequence / runtime / source — see VERSIONING.md), running source/slot/version, active/LKG/pending slots, quarantine reasons, last 20 update events. Logcat tag
 `HagOta`.
 
 ## Qualification (automated, GitHub Actions)
-* `:ota-core:test` – 49 JVM tests: compatibility, verification attack cases, rollback state machine, coordinator.
+* `:ota-core:test` – JVM tests: compatibility, verification attack cases, rollback state machine, coordinator,
+  exact-ABI across native generations, channel fetch semantics, identity block.
 * Emulator job (`OtaQualificationTest`): real `DexClassLoader`; full stage→restart→promote cycle; rollback from a
   failing selfTest and a throwing entry; crash-loop quarantine → built-in; incompatible-ABI bundle refused without
   download; tampered bundle with a matching index hash rejected; logo asset hash. Fixtures are signed in CI with an
@@ -94,3 +109,16 @@ manifest permissions/components, the splash/loader/updater itself, signing-key r
 `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (stable APK
 signing identity so sideloaded updates install over each other) and `OTA_SIGNING_KEY` (the exact text of the `.key` file: base64 PKCS#8, matching
 `ota/keys/prod.pub`). Release workflows fail loudly if any are missing; CI never needs them.
+
+## Host launch contract (HostActivity)
+* **Splash:** native/system start window (neutral `#0E0E12`, blank icon on API 31+, exit animation removed) -> Hot Attic Games
+  splash -> product UI. The splash is the exact canonical asset (`assets/branding/studio-logo.png`, decoded unscaled,
+  `FIT_CENTER`, alpha preserved) on an opaque neutral backdrop. It is shown **only on cold process start** (a process-level
+  flag): never on resume, rotation/config change, `recreate()`, or a second Activity in a live process. It swallows touches
+  while up, is removed after the minimum brand time (1.2 s) once the product view drew its first frame, with a 3 s hard cap, and
+  never lingers over the live UI. Covered by `HostSplashTest`.
+* **Saved state is never restored.** Android would re-instantiate bundle-owned Fragments (the file picker) through the host
+  class loader after process death and crash. `HostActivity` calls `super.onCreate(null)`, strips fragment state from
+  `onSaveInstanceState`, and ignores `onRestoreInstanceState`. Covered by `HostRestoreTest`. Consequence: a picker result that
+  arrives after process death is dropped and the user simply picks again.
+* Predictive back is enabled explicitly; the platform default callback routes to `onBackPressed()`, where the bundle gets first refusal.

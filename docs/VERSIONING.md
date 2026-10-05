@@ -15,6 +15,31 @@ Rules
 4. Owner-facing screens (About / Diagnostics) show all five identities in one block.
 5. `ota/native-map.json` maps `nativeAbi → native version`; the publish workflow rejects an application version whose major is not the native version of its `nativeAbi`.
 
+## Where each identity lives in code
+| Identity | Build input | Runtime surface |
+|---|---|---|
+| Native version | `-PhostVersionName` / `-PhostVersionCode` (default 2) -> `BuildConfig.VERSION_NAME` | `diagnostics.identity.nativeVersion`, `HostServices.hostVersionName` |
+| Application version | bundle `-PbundleVersionName` (default `2.0`, convention `<native>.<minor>`) -> manifest `bundleVersionName` | `diagnostics.identity.appVersion` (from the *running* bundle) |
+| OTA sequence | bundle `-PbundleVersion` (default 3) -> manifest `bundleVersion` | `diagnostics.identity.otaSequence` |
+| Runtime / ABI | `NATIVE_ABI` (2) + `-PnativeRuntimeId` -> `BuildConfig.NATIVE_ABI/NATIVE_RUNTIME_ID` | `diagnostics.identity.nativeAbi / nativeRuntimeId` |
+| Source | `-PgitSha=<short sha>` (workflows; `dev` locally) -> `BuildConfig.GIT_SHA` | `diagnostics.identity.sourceSha` |
+
+`HostRuntime.diagnosticsJson()` carries `identity` (structured) and `identityBlock` (the formatted owner-facing text):
+
+```
+Native version: 2
+Application version: 2.0
+OTA sequence: #3 (builtin)
+Runtime: ABI 2, hag-engine 1; llama.cpp 0c1e570
+Source: a1b2c3d
+```
+
+The running identity is published *before* the bundle builds its view (source `starting:<builtin|ota>` while loading),
+so "running none / v0" can only mean genuine host safe mode, where the block says `none (safe mode)`.
+
+`ota/native-map.json` (`nativeAbi -> native version`) is the single source for rule 5; `tools/ci/check-native-map.py`
+enforces it in `publish-ota.yml`, and `release-apk.yml` refuses a native version that is not in the map.
+
 ## Reconciled history (native v1)
 | Native | Application | OTA sequence | Notes |
 |---|---|---|---|

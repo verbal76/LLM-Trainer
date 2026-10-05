@@ -16,7 +16,8 @@ interface Fetcher {
 }
 
 sealed interface CheckResult {
-    data class UpToDate(val version: Int) : CheckResult
+    /** [channelPublished] false = the channel index does not exist yet (HTTP 404): nothing newer can exist. */
+    data class UpToDate(val version: Int, val channelPublished: Boolean = true) : CheckResult
     /** A compatible, verified bundle was staged; it runs on next launch. */
     data class Staged(val slot: SlotInfo) : CheckResult
     /** Newer bundles exist but all need a newer APK (native/runtime change). Never forced via OTA. */
@@ -51,10 +52,15 @@ class UpdateCoordinator(
                 // Channel not published yet: nothing newer exists. A clean "up to date", not a failure.
                 val floor = store.highestKnownVersion(host.builtinBundleVersion)
                 store.record("CHECK_NO_CHANNEL", "index 404")
-                return CheckResult.UpToDate(floor)
+                return CheckResult.UpToDate(floor, channelPublished = false)
             }
-            store.record("CHECK_FAILED", "index: ${e.message}")
-            return CheckResult.Failed(listOf(Reject(RejectCode.INDEX_INVALID, e.message ?: "fetch failed")))
+            val code = if (e.status >= 500) RejectCode.SERVER_ERROR else RejectCode.CHANNEL_HTTP_ERROR
+            store.record("CHECK_FAILED", "index: HTTP ${e.status}")
+            return CheckResult.Failed(listOf(Reject(code, "HTTP ${e.status}")))
+        } catch (e: IOException) {
+            // Offline, DNS, timeout, TLS, truncated body: the channel state is unknown, so this is a failure.
+            store.record("CHECK_FAILED", "index: ${e.javaClass.simpleName}: ${e.message}")
+            return CheckResult.Failed(listOf(Reject(RejectCode.NETWORK_UNAVAILABLE, e.message ?: e.javaClass.simpleName)))
         } catch (e: Exception) {
             store.record("CHECK_FAILED", "index: ${e.message}")
             return CheckResult.Failed(listOf(Reject(RejectCode.INDEX_INVALID, e.message ?: "fetch/parse failed")))
@@ -65,7 +71,11 @@ class UpdateCoordinator(
         }
 
         val floor = store.highestKnownVersion(host.builtinBundleVersion)
-        val newer = index.bundles.filter { it.bundleVersion > floor }.sortedByDescending { it.bundleVersion }
+        // A bundle built for an OLDER native runtime than this host (e.g. an abi-1 OTA published after the abi-2 APK
+        // shipped) is obsolete here: a new APK cannot help it, so it is ignored, never offered or staged.
+        val newer = index.bundles
+            .filter { it.bundleVersion > floor && it.requires.nativeAbi >= host.nativeAbi }
+            .sortedByDescending { it.bundleVersion }
         if (newer.isEmpty()) {
             store.record("CHECK_UP_TO_DATE", "v$floor")
             return CheckResult.UpToDate(floor)
@@ -113,7 +123,7 @@ class UpdateCoordinator(
                             failures += Reject(RejectCode.INDEX_INVALID, "index/manifest version disagree")
                             continue
                         }
-                        val staged = store.stage(r.bundle, sha, host.builtinBundleVersion)
+                        val staged = store.stage(r.bundle, sha, host.builtinBundleVersion, host.nativeAbi)
                         staged.onSuccess { return CheckResult.Staged(it) }
                         staged.onFailure {
                             failures += ((it as? UpdateStore.RejectedException)?.reject
