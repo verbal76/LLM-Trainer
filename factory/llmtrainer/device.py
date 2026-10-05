@@ -614,6 +614,19 @@ class CapabilityReport(Base):
 # ----------------------------- artifact -> v1 types ------------------------- #
 
 
+def full_precision_class_for(params_b: float) -> str:
+    """Static training class of a FULL-PRECISION artifact by parameter count (F32 trainer: ~16 bytes/param for full tuning).
+
+    <= 0.45B: full tuning is plausible on a high-RAM phone; <= 1.0B: only the last layers; larger: external compute.
+    The same rule lives in scripts/catalog/refresh_catalog.py (stdlib-only copy) and is enforced by tests.
+    """
+    if params_b <= 0.45:
+        return "local_full"
+    if params_b <= 1.0:
+        return "local_partial"
+    return "external_only"
+
+
 def spec_params(spec: ArtifactSpec) -> float:
     return spec.params if spec.params is not None else spec.nominal_params_b * 1e9
 
