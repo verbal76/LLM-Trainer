@@ -106,7 +106,7 @@ if(HAG_BUILD_TESTS)
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND AND HAG_BUILD_CLI)
     add_test(NAME hag_engine_pytest
-             COMMAND ${Python3_EXECUTABLE} -m pytest -v -x ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_engine.py
+             COMMAND ${Python3_EXECUTABLE} -m pytest -v ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_engine.py
              WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     set_tests_properties(hag_engine_pytest PROPERTIES ENVIRONMENT "HAG_CLI=$<TARGET_FILE:hag_cli>;HAG_TEST_TMP=${CMAKE_BINARY_DIR}/test-tmp")
   endif()

@@ -71,7 +71,7 @@ jobs:
 
       - name: Engine tests (hag_unit + pytest integration suite)
         env:
-          HAG_PRETRAIN_EPOCHS: ${{ github.event.inputs.pretrain_epochs || '2' }}
+          HAG_PRETRAIN_EPOCHS: ${{ github.event.inputs.pretrain_epochs || '6' }}
         run: ctest --test-dir build/engine --output-on-failure -V
 
       - name: Throughput / memory table (x86 CPU numbers)
