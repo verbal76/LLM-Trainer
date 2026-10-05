@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: OTA core (JVM) + Python factory tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: OTA core unit tests
+        run: ./gradlew --no-daemon :ota-core:test
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Factory tests
+        working-directory: factory
+        run: |
+          pip install -e ".[dev]" || pip install -e . pytest
+          python -m pytest -q
+      - name: Schemas are in sync with code
+        working-directory: factory
+        run: |
+          python -m llmtrainer export-schemas ../schemas
+          git -C .. diff --exit-code -- schemas
+
+  android:
+    name: Android build + OTA qualification (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Brand asset is the exact canonical logo
+        run: echo "e3d9bb5653eafb783eede827606e7ac73a4e45564a1c25b1ed13ad1429f48c4e  branding/hot-attic-games/studio-logo.png" | sha256sum -c -
+
+      - name: Ephemeral CI OTA key (CI builds only; releases use the real key)
+        run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
+
+      - name: Build OTA qualification fixtures
+        run: |
+          K="-PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaKeyId=ci"
+          F="$PWD/fixtures/ota-fixtures"; mkdir -p "$F"
+          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=2 -PbundleOut="$F/bundle-2-good.hagb"
+          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=3 -PfaultMode=selftest_fails -PbundleOut="$F/bundle-3-selftest.hagb"
+          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=4 -PnativeAbi=2 -PbundleOut="$F/bundle-4-abi2.hagb"
+          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=5 -PfaultMode=entry_throws -PbundleOut="$F/bundle-5-throws.hagb"
+          ls -l "$F"
+
+      - name: Build APKs
+        run: |
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease \
+            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
+
+      - name: Logo inside APK is byte-identical
+        run: |
+          unzip -p app/build/outputs/apk/release/app-release-unsigned.apk assets/branding/studio-logo.png 2>/dev/null | sha256sum || \
+          unzip -p app/build/outputs/apk/release/app-release.apk assets/branding/studio-logo.png | sha256sum
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+
+      - name: OTA qualification on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: >
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest
+            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
+            -PotaFixturesDir=$PWD/fixtures
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-test-reports
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+            ota-core/build/reports
+          if-no-files-found: ignore
