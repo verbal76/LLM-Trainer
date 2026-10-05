@@ -28,6 +28,11 @@ jobs:
         run: |
           pip install -e ".[test]"
           python -m pytest -q
+      - name: Kotlin-produced training job is accepted by the real Python importer (interop)
+        working-directory: factory
+        run: |
+          test -f ../studio-core/build/sample/job.zip
+          LLMT_KOTLIN_JOB_ZIP=$PWD/../studio-core/build/sample/job.zip python -m pytest -q tests/test_kotlin_job_interop.py
       - name: Schemas are in sync with code
         working-directory: factory
         run: |
