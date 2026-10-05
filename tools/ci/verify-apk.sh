@@ -49,11 +49,11 @@ grep -q "Number of signers: 1" signer.txt || fail "expected exactly one signer"
 
 # ---- identity / sdk levels ------------------------------------------------------------------------------------
 "$BT/aapt2" dump badging "$APK" > badging.txt
-grep -E "^package:|application-label:|sdkVersion|targetSdkVersion" badging.txt
+grep -Ei "^package:|application-label:|sdkVersion" badging.txt
 grep -q "package: name='com.hotatticgames.llmtrainer'" badging.txt || fail "wrong package"
 grep -q "versionName='$VNAME'" badging.txt || fail "versionName != $VNAME"
 if [ -n "$VCODE" ]; then grep -q "versionCode='$VCODE'" badging.txt || fail "versionCode != $VCODE"; fi
-grep -q "^sdkVersion:'26'" badging.txt || fail "minSdk != 26"
+grep -Eq "^(min)?[sS]dkVersion:'26'" badging.txt || fail "minSdk != 26"
 grep -q "^targetSdkVersion:'36'" badging.txt || fail "targetSdk != 36"
 
 # ---- exact canonical studio logo --------------------------------------------------------------------------------
