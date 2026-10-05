@@ -52,7 +52,9 @@ val generateBuildInfo = tasks.register("generateBuildInfo") {
                 const val BUNDLE_VERSION = $bundleVersion
                 const val BUNDLE_VERSION_NAME = "$bundleVersionName"
                 /** Test-only fault injection used by OTA qualification fixtures. Always "none" in releases. */
-                const val FAULT_MODE = "$faultMode"
+                // Deliberately NOT const: a const is inlined into consumers at compile time, and a stale incremental build
+                // could then keep an old fault mode in MainBundle. A plain val is always read at runtime from this class.
+                @JvmField val FAULT_MODE: String = "$faultMode"
             }
             """.trimIndent() + "\n",
         )
@@ -69,6 +71,10 @@ val dexBundle = tasks.register<Exec>("dexBundle") {
     dependsOn(tasks.named("jar"))
     val jarFile = tasks.named<Jar>("jar").flatMap { it.archiveFile }
     val outDir = layout.buildDirectory.dir("ota/dex-$bundleVersion")
+    inputs.file(jarFile)
+    inputs.property("faultMode", faultMode)
+    inputs.property("bundleVersion", bundleVersion)
+    inputs.files(bundledModules.map { m -> project(m).layout.buildDirectory.file("libs/${m.removePrefix(":")}.jar") })
     outputs.dir(outDir)
     doFirst {
         val bt = File(sdkRoot, "build-tools").listFiles()!!.filter { File(it, "d8").exists() }.maxByOrNull { it.name }
