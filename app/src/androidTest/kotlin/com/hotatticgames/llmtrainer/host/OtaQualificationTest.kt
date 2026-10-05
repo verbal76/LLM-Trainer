@@ -28,8 +28,8 @@ import java.util.zip.ZipInputStream
  * OTA qualification on a real Android runtime: real DexClassLoader, real filesystem, real signature
  * verification against the key embedded in this APK. Fixture bundles are produced by CI with the same
  * key (see .github/workflows/android.yml):
- *   bundle-2-good (v2), bundle-3-selftest (v3, selfTest fails), bundle-4-abi2 (v4, needs native ABI 2),
- *   bundle-5-throws (v5, entry constructor throws).
+ *   bundle-4-good (v4, abi 2), bundle-5-selftest (v5, selfTest fails), bundle-6-abi1 (v6, built for the OLD native ABI 1),
+ *   bundle-7-throws (v7, entry constructor throws), bundle-8-needs-engine (v8, requires inference.gguf.v1 + training.patch.v1).
  */
 class OtaQualificationTest {
     private val instr = InstrumentationRegistry.getInstrumentation()
@@ -109,13 +109,13 @@ class OtaQualificationTest {
 
     @Test fun fullOtaCycleStagesRestartsAndPromotes() {
         val root = freshRoot()
-        val fetcher = ChannelFetcher(mapOf("good" to fixture("bundle-2-good")))
+        val fetcher = ChannelFetcher(mapOf("good" to fixture("bundle-4-good")))
         assertEquals("STAGED", check(runtime(root, fetcher)).kind)
 
         val rt2 = runtime(root, fetcher) // simulated app restart: new runtime, same on-disk state
         val r = boot(rt2)!!
         assertEquals("ota", r.source)
-        assertEquals(2, r.version)
+        assertEquals(4, r.version)
         rt2.onFirstFrame()
         val st = rt2.store.load()
         assertEquals(r.slotId, st.active); assertEquals(r.slotId, st.lastKnownGood); assertNull(st.pending)
@@ -124,16 +124,16 @@ class OtaQualificationTest {
 
     @Test fun badUpdatesRollBackToLastKnownGood() {
         val root = freshRoot()
-        val good = ChannelFetcher(mapOf("good" to fixture("bundle-2-good")))
+        val good = ChannelFetcher(mapOf("good" to fixture("bundle-4-good")))
         check(runtime(root, good))
         val rtA = runtime(root, good); val a = boot(rtA)!!; rtA.onFirstFrame()
 
-        for ((name, version) in listOf("bundle-3-selftest" to 3, "bundle-5-throws" to 5)) {
+        for ((name, version) in listOf("bundle-5-selftest" to 5, "bundle-7-throws" to 7)) {
             val f = ChannelFetcher(mapOf(name to fixture(name)))
             assertEquals("STAGED", check(runtime(root, f)).kind)
             val rt = runtime(root, f)
             val r = boot(rt)!!
-            assertEquals("must fall back to v2 after v$version fails; history=" + rt.store.load().history.takeLast(10).joinToString(" | ") { it.event + ":" + it.detail }, 2, r.version)
+            assertEquals("must fall back to v4 after v$version fails; history=" + rt.store.load().history.takeLast(10).joinToString(" | ") { it.event + ":" + it.detail }, 4, r.version)
             assertEquals(a.slotId, r.slotId)
             assertTrue(rt.store.load().quarantined.keys.any { it.startsWith("v$version-") })
         }
@@ -141,7 +141,7 @@ class OtaQualificationTest {
 
     @Test fun crashLoopingTrialIsQuarantinedAndBuiltinTakesOver() {
         val root = freshRoot()
-        val f = ChannelFetcher(mapOf("good" to fixture("bundle-2-good")))
+        val f = ChannelFetcher(mapOf("good" to fixture("bundle-4-good")))
         check(runtime(root, f))
         // Two starts that never reach a first frame (process died): budget for a trial is 2.
         repeat(2) { assertEquals("ota", boot(runtime(root, f))!!.source) }
@@ -151,7 +151,7 @@ class OtaQualificationTest {
 
     @Test fun incompatibleNativeBundleIsRefusedAndNeverInstalled() {
         val root = freshRoot()
-        val f = ChannelFetcher(mapOf("abi2" to fixture("bundle-4-abi2")))
+        val f = ChannelFetcher(mapOf("abi1" to fixture("bundle-6-abi1")))
         val s = check(runtime(root, f))
         assertEquals("NEEDS_NEW_APK", s.kind)
         assertTrue(f.downloads.isEmpty())
@@ -159,7 +159,7 @@ class OtaQualificationTest {
     }
 
     @Test fun tamperedBundleWithMatchingIndexHashIsRejected() {
-        val bytes = fixture("bundle-2-good").copyOf()
+        val bytes = fixture("bundle-4-good").copyOf()
         bytes[bytes.size / 2] = (bytes[bytes.size / 2] + 1).toByte()
         val root = freshRoot()
         // The index lies and even carries the tampered file's hash; the signed manifest must still catch it.
@@ -168,7 +168,7 @@ class OtaQualificationTest {
                 ChannelIndex.serializer(),
                 ChannelIndex(
                     CHANNEL_SCHEMA, "llmtrainer-main", "stable", "now",
-                    listOf(ChannelEntry(2, "1.0.2", "https://test.invalid/t.hagb", Hashing.sha256Hex(bytes), bytes.size.toLong(), ChannelFetcher.manifestOf(fixture("bundle-2-good")).requires)),
+                    listOf(ChannelEntry(4, "1.0.4", "https://test.invalid/t.hagb", Hashing.sha256Hex(bytes), bytes.size.toLong(), ChannelFetcher.manifestOf(fixture("bundle-4-good")).requires)),
                 ),
             ).toByteArray()
             override fun getBytes(url: String, maxBytes: Long) = idx

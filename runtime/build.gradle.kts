@@ -9,8 +9,8 @@ plugins {
 
 fun prop(name: String, default: String) = (findProperty(name) as String?) ?: default
 
-val ndkPin = prop("hag.ndkVersion", "28.0.13004108")
-val cmakePin = prop("hag.cmakeVersion", "3.22.1")
+val ndkPin = prop("hag.ndkVersion", "28.2.13676358")
+val cmakePin = prop("hag.cmakeVersion", "3.31.5")
 // ABIs built. Phones are arm64-v8a; x86_64 exists for emulator qualification (CI) only. The release APK additionally
 // filters to arm64-v8a in app/build.gradle.kts, so x86_64 code never ships to users.
 val hagAbis = prop("hag.abis", "arm64-v8a,x86_64").split(',').map { it.trim() }.filter { it.isNotEmpty() }

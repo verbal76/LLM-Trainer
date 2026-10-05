@@ -7,9 +7,19 @@ plugins {
 
 fun prop(name: String, default: String) = (findProperty(name) as String?) ?: default
 
-val hostVersionCode = prop("hostVersionCode", "1").toInt()
-val hostVersionName = prop("hostVersionName", "1")
-val builtinBundleVersion = prop("bundleVersion", "1").toInt()
+// Native v2 generation: APK versionName "2" (see docs/VERSIONING.md). Releases pass explicit -P values.
+val hostVersionCode = prop("hostVersionCode", "2").toInt()
+val hostVersionName = prop("hostVersionName", "2")
+// The built-in layer of native v2 is OTA sequence #3: strictly newer than every v1-era slot (#1, #2), so
+// UpdateStore.reconcileBuiltin drops stale v1 OTA slots on first v2 launch.
+val builtinBundleVersion = prop("bundleVersion", "3").toInt()
+// Source identity: CI exports GITHUB_SHA; local builds ask the repository; never fail the build over it.
+val gitSha: String = (System.getenv("GITHUB_SHA")?.take(12)?.takeIf { it.isNotBlank() }
+    ?: runCatching {
+        providers.exec { commandLine("git", "rev-parse", "--short=12", "HEAD"); isIgnoreExitValue = true }
+            .standardOutput.asText.get().trim()
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+    ?: "unknown")
 val otaKeyId = prop("otaKeyId", File(rootDir, "ota/keys/prod.keyid").readText().trim())
 val otaPublicKey = File(prop("otaPublicKeyFile", File(rootDir, "ota/keys/prod.pub").path)).readText().trim()
 
@@ -27,8 +37,11 @@ android {
 
         // Native runtime identity. Bump NATIVE_ABI whenever JNI surface or shipped .so files change
         // incompatibly: OTA bundles pin it exactly, so they can never reach an incompatible runtime.
-        buildConfigField("int", "NATIVE_ABI", "1")
-        buildConfigField("String", "NATIVE_RUNTIME_ID", "\"none-v1\"")
+        // 2 = the HAG engine runtime (libhagrt/libhagengine + host API level 2). Native v1 hosts are ABI 1.
+        buildConfigField("int", "NATIVE_ABI", "2")
+        // Fallback only: the live runtime id is the engine's own hag_engine_version() string (HostRuntime.hostInfo).
+        buildConfigField("String", "NATIVE_RUNTIME_ID", "\"engine-unavailable\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         buildConfigField("int", "BUILTIN_BUNDLE_VERSION", "$builtinBundleVersion")
         buildConfigField("String", "OTA_KEY_ID", "\"$otaKeyId\"")
         buildConfigField("String", "OTA_PUBLIC_KEY", "\"$otaPublicKey\"")
@@ -50,8 +63,14 @@ android {
             }
         }
     }
+    packaging {
+        // Native libs stay uncompressed + page-aligned inside the APK (mandatory for 16 KB page-size devices).
+        jniLibs { useLegacyPackaging = false }
+    }
     buildTypes {
         release {
+            // Phones only: the x86_64 engine build exists for emulator qualification (debug/test APK) and never ships.
+            ndk { abiFilters += "arm64-v8a" }
             isMinifyEnabled = false // bundles resolve kotlin-stdlib + host API from the host: never strip them
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
@@ -68,6 +87,7 @@ android {
 dependencies {
     implementation(project(":ota-core"))
     api(project(":host-api"))
+    implementation(project(":runtime"))
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")

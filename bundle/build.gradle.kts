@@ -29,12 +29,12 @@ dependencies {
 
 // ---- Build parameters (all overridable with -P) -------------------------------------------------
 fun prop(name: String, default: String) = (findProperty(name) as String?) ?: default
-val bundleVersion = prop("bundleVersion", "1")
+val bundleVersion = prop("bundleVersion", "3") // native v2 built-in layer = OTA sequence #3 (keep in sync with app/build.gradle.kts)
 val bundleVersionName = prop("bundleVersionName", "1.0.$bundleVersion")
 val faultMode = prop("faultMode", "none") // none | entry_throws | selftest_fails | slow_health
 val hostApiMin = prop("hostApiMin", "1")
 val hostApiMax = prop("hostApiMax", ((hostApiMin.toInt() / 100) * 100 + 99).toString())
-val nativeAbi = prop("nativeAbi", "1")
+val nativeAbi = prop("nativeAbi", "2") // native v2 runtime (exact gate); v1-era bundles carry 1
 val capabilities = prop("bundleCaps", "core.v1,device.snapshot.v1,update.check.v1").split(',').filter { it.isNotBlank() }
 val bundleOut = prop("bundleOut", layout.buildDirectory.file("ota/LLM-Trainer-bundle-$bundleVersion.hagb").get().asFile.path)
 

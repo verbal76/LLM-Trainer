@@ -19,5 +19,10 @@ unzip -p "$APK" assets/branding/studio-logo.png | sha256sum | grep -q "$LOGO_SHA
 echo "logo OK ($LOGO_SHA)"
 
 mkdir -p chk && unzip -p "$APK" assets/builtin/llmtrainer-main.hagb > chk/builtin.hagb
-./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/chk/builtin.hagb --pub $(realpath $PUB) --key-id $KEYID --host-api 1 --native-abi 1 --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --sdk 34 --bundle-id llmtrainer-main --channel stable"
+./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/chk/builtin.hagb --pub $(realpath $PUB) --key-id $KEYID --host-api 2 --native-abi 2 --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --cap inference.gguf.v1 --cap training.patch.v1 --sdk 34 --bundle-id llmtrainer-main --channel stable"
 echo "built-in bundle verifies against trusted key $KEYID"
+
+# Native v2 identity: minSdk 26, targetSdk 36 (16 KB packaging is qualified separately by tools/ci/check-16kb.sh).
+grep -q "sdkVersion:'26'" badging.txt || { echo "::error::minSdk != 26"; exit 1; }
+grep -q "targetSdkVersion:'36'" badging.txt || { echo "::error::targetSdk != 36"; exit 1; }
+echo "package/minSdk/targetSdk OK"

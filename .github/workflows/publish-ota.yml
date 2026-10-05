@@ -15,8 +15,8 @@ on:
         description: "Minimum host API level this bundle needs"
         default: "1"
       native_abi:
-        description: "Native ABI of the host this bundle targets (exact)"
-        default: "1"
+        description: "Native ABI of the host this bundle targets (exact). 2 = native v2 (HAG engine); 1 = legacy native v1 hosts"
+        default: "2"
 
   # Owner-authorized alternative trigger (the integration cannot dispatch workflows): pushing branch `ota/v<N>`
   # publishes bundle N. Same gates as manual dispatch.
@@ -39,7 +39,7 @@ jobs:
           if [ -n "${{ inputs.bundle_version }}" ]; then V="${{ inputs.bundle_version }}"; else V="${GITHUB_REF_NAME#ota/v}"; fi
           echo "BV=$V" >> "$GITHUB_ENV"
           echo "HOST_API_MIN=${{ inputs.host_api_min || '1' }}" >> "$GITHUB_ENV"
-          echo "NATIVE_ABI=${{ inputs.native_abi || '1' }}" >> "$GITHUB_ENV"
+          echo "NATIVE_ABI=${{ inputs.native_abi || '2' }}" >> "$GITHUB_ENV"
       - name: Validate
         env: { OTA: "${{ secrets.OTA_SIGNING_KEY }}" }
         run: |

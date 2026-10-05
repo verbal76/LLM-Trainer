@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  checks: read
 
 jobs:
   release:
@@ -44,13 +45,32 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then echo "::error::tag v$VERSION exists"; exit 1; fi
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
+      - name: Native toolchain pins (gradle.properties)
+        id: pins
+        run: |
+          echo "ndk=$(sed -n 's/^hag.ndkVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+          echo "cmake=$(sed -n 's/^hag.cmakeVersion=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
       - uses: android-actions/setup-android@v3
         with:
-          packages: "platforms;android-36 build-tools;36.0.0"
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ steps.pins.outputs.ndk }} cmake;${{ steps.pins.outputs.cmake }}"
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: runtime/build/llama.cpp
+          key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
+
+      # A release is only cut from a commit whose native-engine CI (real engine + real model on API 36 and, where the
+      # image exists, the 16 KB page-size emulator) already passed. Release never re-uses a different commit's result.
+      - name: Native engine CI must be green for this exact commit
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | select(.name | startswith("Native engine on emulator")) | "\(.name) => \(.conclusion)"' | tee native-ci.txt
+          grep -q '(api36) => success' native-ci.txt || { echo "::error::native-engine (api36) CI is not green for $GITHUB_SHA"; exit 1; }
+          grep -q '(ps16k) => success' native-ci.txt || { echo "::error::native-engine (ps16k) CI is not green for $GITHUB_SHA"; exit 1; }
 
       - name: Unit tests
-        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
+        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test :host-api:test :runtime:testDebugUnitTest
 
       - name: Restore signing material
         env:
@@ -68,28 +88,22 @@ jobs:
       - name: Ephemeral qualification key
         run: ./gradlew --no-daemon -q :ota-core:run --args="keygen $RUNNER_TEMP/ci-ota"
       - name: Build qualification fixtures
-        run: |
-          K="-PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaKeyId=ci"
-          F="$PWD/fixtures/ota-fixtures"; mkdir -p "$F"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=2 -PbundleOut="$F/bundle-2-good.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=3 -PfaultMode=selftest_fails -PbundleOut="$F/bundle-3-selftest.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=4 -PnativeAbi=2 -PbundleOut="$F/bundle-4-abi2.hagb"
-          ./gradlew --no-daemon -q :bundle:packBundle $K -PbundleVersion=5 -PfaultMode=entry_throws -PbundleOut="$F/bundle-5-throws.hagb"
+        run: tools/ci/build-ota-fixtures.sh "$RUNNER_TEMP/ci-ota" "$PWD/fixtures"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: OTA qualification on emulator
+      - name: OTA + host/engine wiring qualification on emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CI_KEY: ${{ runner.temp }}/ci-ota
+          FIXTURES: ${{ github.workspace }}/fixtures
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: >
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest
-            -PotaPrivateKeyFile=$RUNNER_TEMP/ci-ota.key -PotaPublicKeyFile=$RUNNER_TEMP/ci-ota.pub -PotaKeyId=ci
-            -PotaFixturesDir=$PWD/fixtures
+          script: bash tools/ci/run-app-tests.sh
 
       # ---- real release build ----
       - name: Build release APK (real keys)
@@ -102,6 +116,8 @@ jobs:
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           cp "$APK" "LLM-Trainer-v$VERSION.apk"
           tools/ci/verify-apk.sh "LLM-Trainer-v$VERSION.apk" ota/keys/prod.pub k1 "$VERSION"
+          # 16 KB page-size qualification + phone-only ABI set (arm64-v8a) of the exact file that gets published
+          tools/ci/check-16kb.sh "LLM-Trainer-v$VERSION.apk" release
           sha256sum "LLM-Trainer-v$VERSION.apk" | tee "LLM-Trainer-v$VERSION.apk.sha256"
       - name: Publish GitHub Release
         env:
