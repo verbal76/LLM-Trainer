@@ -50,7 +50,23 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--permit-redistribution", type=_perm, default="unverified")
     s.add_argument("--evidence")
 
-    s = sub.add_parser("remove-source", help="remove sources and print the rebuild plan")
+    s = sub.add_parser("ingest", help="ingest files/directories (pdf*, docx, txt, md, csv, tsv, json); *needs optional pypdf; no OCR")
+    s.add_argument("project")
+    s.add_argument("paths", nargs="+")
+    s.add_argument("--origin", default="local files")
+    s.add_argument("--title")
+    s.add_argument("--rights-status", default="unverified",
+                   choices=["owned", "licensed", "public_domain", "open_license", "synthetic", "unverified", "restricted"])
+    s.add_argument("--license-id")
+    s.add_argument("--permit-training", type=_perm, default="unverified")
+    s.add_argument("--permit-commercial", type=_perm, default="unverified")
+    s.add_argument("--permit-redistribution", type=_perm, default="unverified")
+    s.add_argument("--evidence")
+    s = sub.add_parser("inspect-corpus", help="chunk roles, cleaning, OCR-needed pages, near-duplicates, top terms")
+    s.add_argument("project")
+    s.add_argument("--top-terms", type=int, default=20)
+
+    s = sub.add_parser("remove-source",help="remove sources and print the rebuild plan")
     s.add_argument("project")
     s.add_argument("source_ids", nargs="+")
     s.add_argument("--reason", required=True)
@@ -135,6 +151,16 @@ def _dispatch(a) -> int:
         m = pl.add_source(pl.Workspace(Path(a.project)), Path(a.file), title=a.title, origin=a.origin, rights=rights)
         s = m.sources[-1]
         _print({"source_id": s.source_id, "chunks": len(s.chunks), "manifest_hash": m.content_hash})
+    elif a.cmd == "ingest":
+        from . import corpus
+        rights = RightsInfo(status=a.rights_status, license_id=a.license_id, permitted_training=a.permit_training,
+                            permitted_commercial=a.permit_commercial, permitted_redistribution=a.permit_redistribution, evidence=a.evidence)
+        rep = corpus.ingest_paths(pl.Workspace(Path(a.project)), [Path(p) for p in a.paths], origin=a.origin, rights=rights, title=a.title)
+        _print(rep.as_dict())
+        return 0 if rep.ingested or not rep.issues else 1
+    elif a.cmd == "inspect-corpus":
+        from . import corpus
+        _print(corpus.inspect_corpus(pl.Workspace(Path(a.project)), top_terms=a.top_terms))
     elif a.cmd == "plan-removal":
         _print(pl.removal_plan(pl.Workspace(Path(a.project)), a.source_ids).as_dict())
     elif a.cmd == "remove-source":

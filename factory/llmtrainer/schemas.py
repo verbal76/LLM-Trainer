@@ -386,6 +386,15 @@ class ExampleRecord(Base):
     generator: GeneratorInfo
     text_sha256: Sha
     quality_score: float
+    # source_derived: deterministic extraction from source text; synthetic: model/human-authored
+    # beyond the source. Synthetic examples may never sit in held-out (test) data.
+    origin: Literal["source_derived", "synthetic"] = "source_derived"
+
+    @model_validator(mode="after")
+    def _no_synthetic_in_test(self) -> Self:
+        if self.origin == "synthetic" and self.split == "test":
+            raise ValueError("synthetic examples are forbidden in the held-out test split")
+        return self
 
 
 class SplitInfo(Base):

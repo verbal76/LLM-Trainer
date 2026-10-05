@@ -118,3 +118,30 @@ def resolve_leakage(
         dropped.add(victim)
     remaining = {i: s for i, s in split_of.items() if i not in dropped}
     return remaining, sorted(dropped), found
+
+
+def containment_leaks(
+    candidates: dict[str, str], protected: dict[str, str], threshold: float, k: int
+) -> list[tuple[str, str, float]]:
+    """Candidates whose shingles are (almost) contained in a protected text.
+
+    Jaccard misses a short example copied out of a long held-out chunk; containment
+    (|cand & prot| / |cand|) catches it. Returns (candidate_id, protected_id, containment).
+    """
+    index: dict[int, set[str]] = defaultdict(set)
+    for pid, t in protected.items():
+        for s in shingles(t, k):
+            index[s].add(pid)
+    out = []
+    for cid in sorted(candidates):
+        sh = shingles(candidates[cid], k)
+        hits: dict[str, int] = defaultdict(int)
+        for s in sh:
+            for pid in index.get(s, ()):
+                hits[pid] += 1
+        if hits:
+            pid = max(sorted(hits), key=lambda p: hits[p])
+            c = hits[pid] / len(sh)
+            if c >= threshold:
+                out.append((cid, pid, round(c, 6)))
+    return out
