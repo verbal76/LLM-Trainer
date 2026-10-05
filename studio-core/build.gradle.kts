@@ -17,7 +17,7 @@ dependencies {
     compileOnly("org.json:json:20231013")          // on Android the platform provides org.json at runtime
     testImplementation("org.json:json:20231013")   // JVM tests need a real implementation
     testImplementation(kotlin("test"))
-    implementation(project(":studio-api"))
+    api(project(":studio-api"))
     implementation(project(":extract"))
     implementation(project(":qualify"))
 
