@@ -100,6 +100,17 @@ def _thermal_index(v) -> int | None:
     return None
 
 
+def _bandwidth_prior(total_mb: int, sdk) -> float:
+    """Conservative class prior (GB/s) when the snapshot carries no bandwidth estimate. Heuristic, LOW confidence."""
+    if total_mb >= 12000:
+        return 50.0
+    if total_mb >= 8000:
+        return 35.0
+    if total_mb >= 6000:
+        return 25.0
+    return 15.0
+
+
 def profile_from_snapshot(s: dict) -> tuple[DeviceProfile | None, list[str], list[str]]:
     """Return (profile or None, notes, withhold_codes). Notes are stable codes."""
     notes: list[str] = []
@@ -119,17 +130,27 @@ def profile_from_snapshot(s: dict) -> tuple[DeviceProfile | None, list[str], lis
     if mc is not None and mc > host:
         host = int(mc)
     avail_b = _num(s, "availRamBytes")
+    proc_b = _num(s, "procMemAvailableBytes")
     if s.get("lowMemory") is True:
         typical = 0
         notes.append("low_memory")
-    elif avail_b is None:
+    elif avail_b is None and proc_b is None:
         typical = total_mb // 2
         notes.append("avail_ram_unknown")
-    else:
+    elif proc_b is not None:
+        # Kernel MemAvailable counts reclaimable cache: the right 'could a new app get this' number.
         thr = int(_num(s, "lowMemoryThresholdBytes") or 0) // MIB
-        typical = max(0, int(avail_b) // MIB - thr)
+        typical = max(0, max(int(proc_b), int(avail_b or 0)) // MIB - thr)
+    else:
+        # ActivityManager availMem alone is transient on modern Android (cached apps are reclaimable), so it must
+        # NOT cap a capable phone to its momentary free memory. Low-memory STATE is handled above.
+        typical = None
+        notes.append("avail_ram_transient_not_capped")
     bw = _num(s, "memBandwidthGBpsEstimate")
     bw = float(bw) if bw is not None and bw > 0 else None
+    if bw is None:
+        bw = _bandwidth_prior(total_mb, _num(s, "sdkInt"))
+        notes.append("bandwidth_prior_by_class")
     t = _thermal_index(s.get("thermalStatus"))
     factor = 1.0
     if t is None:
@@ -143,7 +164,7 @@ def profile_from_snapshot(s: dict) -> tuple[DeviceProfile | None, list[str], lis
         factor *= 0.8
         notes.append("power_save")
     if factor < 1.0:
-        bw = (bw if bw is not None else 25.0) * factor
+        bw = bw * factor
     pct = _num(s, "batteryPct")
     if pct is not None and pct <= 15:
         notes.append("battery_low")

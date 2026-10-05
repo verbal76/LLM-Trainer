@@ -15,6 +15,14 @@ class QualificationResult(
 
 object DeviceSnapshot {
     private const val MIB = 1048576L
+
+    /** Conservative class prior (GB/s) when the snapshot carries no bandwidth estimate. Heuristic, LOW confidence. */
+    private fun bandwidthPrior(totalMb: Long): Double = when {
+        totalMb >= 12000 -> 50.0
+        totalMb >= 8000 -> 35.0
+        totalMb >= 6000 -> 25.0
+        else -> 15.0
+    }
     private val THERMAL_NAMES = listOf("NONE", "LIGHT", "MODERATE", "SEVERE", "CRITICAL", "EMERGENCY", "SHUTDOWN")
     val WITHHOLD_TEXT: Map<String, String> = mapOf(
         "missing_core_fields" to "Qualification withheld: the device snapshot lacks total RAM or storage figures.",
@@ -65,19 +73,30 @@ object DeviceSnapshot {
         val mc = num(s, "memoryClassMb")
         if (mc != null && mc > host) host = mc.toLong()
         val availB = num(s, "availRamBytes")
-        val typical: Long
+        val procB = num(s, "procMemAvailableBytes")
+        val typical: Long?
         if (s.bool("lowMemory") == true) {
             typical = 0
             notes.add("low_memory")
-        } else if (availB == null) {
+        } else if (availB == null && procB == null) {
             typical = totalMb / 2
             notes.add("avail_ram_unknown")
-        } else {
+        } else if (procB != null) {
+            // Kernel MemAvailable counts reclaimable cache: the right "could a new app get this" number.
             val thr = Math.floorDiv((num(s, "lowMemoryThresholdBytes") ?: 0.0).toLong(), MIB)
-            typical = maxOf(0L, Math.floorDiv(availB.toLong(), MIB) - thr)
+            typical = maxOf(0L, Math.floorDiv(maxOf(procB.toLong(), (availB ?: 0.0).toLong()), MIB) - thr)
+        } else {
+            // availMem alone is transient on modern Android (cached apps are reclaimable): do not cap a capable
+            // phone to its momentary free memory. The low-memory STATE is handled above.
+            typical = null
+            notes.add("avail_ram_transient_not_capped")
         }
         val bwRaw = num(s, "memBandwidthGBpsEstimate")
         var bw: Double? = if (bwRaw != null && bwRaw > 0) bwRaw else null
+        if (bw == null) {
+            bw = bandwidthPrior(totalMb)
+            notes.add("bandwidth_prior_by_class")
+        }
         val t = thermalIndex(s["thermalStatus"])
         var factor = 1.0
         if (t == null) {
@@ -92,7 +111,7 @@ object DeviceSnapshot {
             factor *= 0.8
             notes.add("power_save")
         }
-        if (factor < 1.0) bw = (bw ?: 25.0) * factor
+        if (factor < 1.0) bw = bw!! * factor
         val pct = num(s, "batteryPct")
         if (pct != null && pct <= 15) notes.add("battery_low")
         val maker = s.str("manufacturer") ?: ""
