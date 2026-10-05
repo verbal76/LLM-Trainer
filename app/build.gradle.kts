@@ -15,12 +15,12 @@ val otaPublicKey = File(prop("otaPublicKeyFile", File(rootDir, "ota/keys/prod.pu
 
 android {
     namespace = "com.hotatticgames.llmtrainer"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hotatticgames.llmtrainer"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = hostVersionCode
         versionName = hostVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

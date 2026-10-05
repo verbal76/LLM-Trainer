@@ -3,5 +3,5 @@ val sdkRoot: String? = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_S
     ?: file("local.properties").takeIf { it.exists() }?.readLines()
         ?.firstOrNull { it.startsWith("sdk.dir=") }?.removePrefix("sdk.dir=")
 extra["androidSdkRoot"] = sdkRoot
-extra["androidCompileSdk"] = 35
-extra["androidJar"] = sdkRoot?.let { "$it/platforms/android-35/android.jar" }
+extra["androidCompileSdk"] = 36
+extra["androidJar"] = sdkRoot?.let { "$it/platforms/android-36/android.jar" }

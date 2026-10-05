@@ -49,7 +49,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - uses: android-actions/setup-android@v3
-        with: { packages: "platforms;android-35 build-tools;35.0.0" }
+        with: { packages: "platforms;android-36 build-tools;36.0.0" }
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
         run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
