@@ -1,0 +1,4 @@
+[
+  {"_note": "SYNTHETIC fixture shaped like GET /api/models/<repo>/tree/<rev>?recursive=true", "type": "file", "oid": "1111", "size": 134, "path": "README.md"},
+  {"type": "file", "oid": "2222", "size": 123456, "path": "Tiny-Q8_0.gguf", "lfs": {"oid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "size": 123456, "pointerSize": 135}}
+]

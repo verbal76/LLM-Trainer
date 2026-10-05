@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "description": "Canonical reference license texts. An artifact license may be marked VERIFIED only when the license text fetched by the catalog-refresh CI job is byte-identical (sha256) to one of these files (match_mode 'exact'), or - for MIT only - identical after replacing the single copyright line with the template line (match_mode 'mit_copyright_line'); AND the model-card license metadata agrees with spdx_id. Everything else stays UNVERIFIED.",
+  "licenses": [
+    {
+      "spdx_id": "Apache-2.0",
+      "file": "Apache-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "match_mode": "exact",
+      "source_url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "obtained_on": "2026-10-05",
+      "card_ids": ["apache-2.0"],
+      "permissions": {"commercial_use": "yes", "fine_tuning_permitted": "yes", "derivative_adapter_permitted": "yes", "redistribution_permitted": "yes", "attribution_required": "yes"},
+      "conditions": ["Apache-2.0 s.4: redistributors include the License, retain notices and mark changes", "Apache-2.0 s.6: no trademark license"]
+    },
+    {
+      "spdx_id": "MIT",
+      "file": "MIT.txt",
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+      "bytes": 1078,
+      "match_mode": "mit_copyright_line",
+      "template_copyright_line": "Copyright (c) <year> <copyright holders>",
+      "source_url": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/MIT.txt",
+      "obtained_on": "2026-10-05",
+      "card_ids": ["mit"],
+      "permissions": {"commercial_use": "yes", "fine_tuning_permitted": "yes", "derivative_adapter_permitted": "yes", "redistribution_permitted": "yes", "attribution_required": "yes"},
+      "conditions": ["MIT: the copyright notice and permission notice must be included in all copies or substantial portions"]
+    }
+  ]
+}

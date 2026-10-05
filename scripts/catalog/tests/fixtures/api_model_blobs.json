@@ -1,0 +1,14 @@
+{
+  "_note": "SYNTHETIC fixture shaped like GET https://huggingface.co/api/models/<repo>?blobs=true (documented fields only: sha, siblings[].rfilename/size/lfs.sha256/size, cardData.license). Not a recording: huggingface.co is unreachable from the authoring sandbox. Hashes are made up and exist only to exercise the parser.",
+  "id": "Example/Tiny-GGUF",
+  "sha": "0123456789abcdef0123456789abcdef01234567",
+  "cardData": {"license": "apache-2.0", "base_model": "Example/Tiny"},
+  "siblings": [
+    {"rfilename": ".gitattributes", "size": 1519},
+    {"rfilename": "README.md", "size": 4000},
+    {"rfilename": "LICENSE", "size": 11358},
+    {"rfilename": "Tiny-Q8_0.gguf", "size": 123456, "lfs": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 123456, "pointerSize": 135}},
+    {"rfilename": "Tiny-F16.gguf", "size": 234567, "lfs": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "size": 234567, "pointerSize": 135}},
+    {"rfilename": "Tiny-BF16.gguf", "size": 234567, "lfs": {"sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "size": 234567, "pointerSize": 135}}
+  ]
+}
