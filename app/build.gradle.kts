@@ -83,10 +83,10 @@ abstract class StageHagAssets : DefaultTask() {
     fun stage() {
         val out = outputDir.get().asFile
         out.deleteRecursively()
-        java.io.File(out, "branding").mkdirs()
-        java.io.File(out, "builtin").mkdirs()
-        logo.get().asFile.copyTo(java.io.File(out, "branding/studio-logo.png"), overwrite = true)
-        builtinBundle.get().asFile.copyTo(java.io.File(out, "builtin/llmtrainer-main.hagb"), overwrite = true)
+        File(out, "branding").mkdirs()
+        File(out, "builtin").mkdirs()
+        logo.get().asFile.copyTo(File(out, "branding/studio-logo.png"), overwrite = true)
+        builtinBundle.get().asFile.copyTo(File(out, "builtin/llmtrainer-main.hagb"), overwrite = true)
     }
 }
 
