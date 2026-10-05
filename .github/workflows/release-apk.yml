@@ -52,7 +52,7 @@ jobs:
           OTA: ${{ secrets.OTA_SIGNING_KEY }}
         run: |
           echo "$KS" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "$OTA" | base64 -d > "$RUNNER_TEMP/ota.key" 2>/dev/null || echo "$OTA" > "$RUNNER_TEMP/ota.key"
+          printf '%s' "$OTA" > "$RUNNER_TEMP/ota.key"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
           echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"

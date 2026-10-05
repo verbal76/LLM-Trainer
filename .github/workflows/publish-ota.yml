@@ -52,7 +52,7 @@ jobs:
       - name: Build and sign bundle
         env: { OTA: "${{ secrets.OTA_SIGNING_KEY }}" }
         run: |
-          echo "$OTA" | base64 -d > "$RUNNER_TEMP/ota.key" 2>/dev/null || echo "$OTA" > "$RUNNER_TEMP/ota.key"
+          printf '%s' "$OTA" > "$RUNNER_TEMP/ota.key"
           NAME="${{ inputs.version_name }}"; [ -n "$NAME" ] || NAME="1.0.$BV"
           ./gradlew --no-daemon :bundle:packBundle -PotaPrivateKeyFile="$RUNNER_TEMP/ota.key" -PotaKeyId=k1 \
             -PbundleVersion="$BV" -PbundleVersionName="$NAME" -PhostApiMin="${{ inputs.host_api_min }}" \

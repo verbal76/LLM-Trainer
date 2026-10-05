@@ -92,5 +92,5 @@ manifest permissions/components, the splash/loader/updater itself, signing-key r
 
 ## Required one-time owner setup (secrets)
 `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (stable APK
-signing identity so sideloaded updates install over each other) and `OTA_SIGNING_KEY` (base64 PKCS#8 matching
+signing identity so sideloaded updates install over each other) and `OTA_SIGNING_KEY` (the exact text of the `.key` file: base64 PKCS#8, matching
 `ota/keys/prod.pub`). Release workflows fail loudly if any are missing; CI never needs them.
