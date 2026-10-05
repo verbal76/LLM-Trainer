@@ -73,13 +73,31 @@ dependencies {
 }
 
 // Exact canonical studio logo + the built-in OTA bundle, copied byte-for-byte into assets/.
-val stageHagAssets = tasks.register<Copy>("stageHagAssets") {
-    dependsOn(":bundle:packBundle")
-    into(layout.buildDirectory.dir("generated/hag-assets"))
-    from(File(rootDir, "branding/hot-attic-games/studio-logo.png")) { into("branding") }
-    from(project(":bundle").layout.buildDirectory.file("ota/LLM-Trainer-bundle-$builtinBundleVersion.hagb")) {
-        into("builtin"); rename { "llmtrainer-main.hagb" }
+// Registered through the AGP variant API so every consumer of the assets (merge, lint, ...) depends on it.
+abstract class StageHagAssets : DefaultTask() {
+    @get:InputFile abstract val logo: RegularFileProperty
+    @get:InputFile abstract val builtinBundle: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun stage() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        java.io.File(out, "branding").mkdirs()
+        java.io.File(out, "builtin").mkdirs()
+        logo.get().asFile.copyTo(java.io.File(out, "branding/studio-logo.png"), overwrite = true)
+        builtinBundle.get().asFile.copyTo(java.io.File(out, "builtin/llmtrainer-main.hagb"), overwrite = true)
     }
 }
-// Wiring the task's output as the asset dir gives EVERY consumer (merge, lint, ...) the task dependency.
-android.sourceSets["main"].assets.srcDir(stageHagAssets.map { it.destinationDir })
+
+val stageHagAssets = tasks.register<StageHagAssets>("stageHagAssets") {
+    dependsOn(":bundle:packBundle")
+    logo.set(File(rootDir, "branding/hot-attic-games/studio-logo.png"))
+    builtinBundle.set(project(":bundle").layout.buildDirectory.file("ota/LLM-Trainer-bundle-$builtinBundleVersion.hagb"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(stageHagAssets, StageHagAssets::outputDir)
+    }
+}
