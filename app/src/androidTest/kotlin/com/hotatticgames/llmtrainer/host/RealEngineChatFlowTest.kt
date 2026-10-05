@@ -54,6 +54,7 @@ class RealEngineChatFlowTest : BundleUiTest() {
         val stats = waitTextOf("chat-stats", "measured stats") { it.contains("tok/s") }
         assertTrue(stats, stats.contains("model load"))
         assertTrue(stats, stats.contains("stopped:"))
-        assertTrue("no error banner expected, was: ${bannerText()}", bannerText() == null)
+        val banner = bannerText() // informational banners ("Base model selected.") are fine; anything else would be an error
+        assertTrue("no error banner expected, was: $banner", banner == null || banner.startsWith("Base model selected"))
     }
 }
