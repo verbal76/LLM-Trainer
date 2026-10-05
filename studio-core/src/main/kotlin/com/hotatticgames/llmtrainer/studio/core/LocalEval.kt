@@ -68,7 +68,26 @@ class EvalService(
 
     // ---- start ---------------------------------------------------------------------------------------------------------------
 
-    private class Prepared(val base: File, val patch: File, val items: List<DatasetEngine.EvalItem>, val testChunks: List<DChunk>, val synthetic: Boolean, val dv: DataView, val spec: SpecialistRec)
+    /**
+     * Leakage guard: the held-out chunks must be material the specialist did NOT train on. Same dataset hash = proven by construction.
+     * If the dataset was rebuilt since, compare against the exact chunks recorded in the training run (fail closed when that is missing).
+     * Returns true when the dataset is identical to the training dataset.
+     */
+    private fun heldOutGuard(pid: ProjectId, spec: SpecialistRec, dv: DataView, test: List<DChunk>): Boolean {
+        if (dv.sha == spec.datasetSha256) return true
+        val seq = host.projectDir(pid)?.let { File(it, "training/${spec.runId}/sequences.jsonl") }
+        if (seq == null || !seq.isFile) throw blockedEx("DATASET_CHANGED", "The dataset changed since this specialist was trained and its training record is gone, so the held-out split cannot be proven unseen. Retrain on the current dataset.")
+        val trained = HashSet<String>()
+        for (line in Fs.readLines(seq)) { val a = org.json.JSONObject(line).optJSONArray("chunks") ?: continue; for (i in 0 until a.length()) trained.add(a.getString(i)) }
+        val facts = host.sourceFacts(pid)
+        val changedSources = test.map { it.sourceId }.toSet().filter { sid -> spec.sources[sid]?.let { sha -> facts[sid]?.sha256 != sha } == true }
+        if (changedSources.isNotEmpty()) throw blockedEx("DATASET_CHANGED", "Source material used for training changed after the specialist was trained, so held-out chunk ids can no longer be trusted. Retrain.")
+        val overlap = test.map { it.ref }.filter { it in trained }
+        if (overlap.isNotEmpty()) throw blockedEx("HELDOUT_OVERLAP", "${overlap.size} held-out chunk(s) in the current dataset were used to train this specialist (the dataset was rebuilt with a different split). Evaluating on them would be meaningless; retrain on the current dataset.")
+        return false
+    }
+
+    private class Prepared(val base: File, val patch: File, val items: List<DatasetEngine.EvalItem>, val testChunks: List<DChunk>, val synthetic: Boolean, val dv: DataView, val spec: SpecialistRec, val sameDataset: Boolean)
 
     fun start(pid: ProjectId, spId: String, o: LocalEvalOptions): LocalEvaluation {
         if (host.projectDir(pid) == null) throw StudioException(StudioError.NotFound("project ${pid.value}"))
@@ -81,14 +100,15 @@ class EvalService(
         val v = specs.verify(spId)
         if (!v.verified) throw blockedEx("SPECIALIST_UNVERIFIED", "The specialist could not be verified: ${v.verifyMessage}")
         val dv = host.dataView(pid) ?: throw blockedEx("NO_DATASET", "Build and approve a dataset first")
-        if (dv.status != DatasetStatus.APPROVED && dv.status != DatasetStatus.STALE) throw blockedEx("DATASET_NOT_APPROVED", "The dataset must be approved so its held-out split is defined (status ${dv.status}).")
+        if (dv.status != DatasetStatus.APPROVED) throw blockedEx("DATASET_NOT_APPROVED", "The dataset must be approved so its held-out split is defined (status ${dv.status}).")
         val test = dv.testChunks()
         if (test.isEmpty() || !dv.splitsAvailable) throw blockedEx("NO_HELDOUT", "There is no held-out (test) material. Add more documents so a genuine unseen split exists.")
+        val sameDataset = heldOutGuard(pid, spec, dv, test)
         var items = DatasetEngine.buildEvalItems(test.map { it.ref to (it.chunk.section to it.chunk.text) }, dv.domain)
         if (items.isEmpty()) throw blockedEx("NO_HELDOUT_ITEMS", "No evaluation questions could be derived from the held-out text.")
         if (items.size > o.maxItems) { val sh = items.toMutableList(); sh.shuffle(Random(o.seed)); items = sh.take(o.maxItems).sortedBy { it.itemId } }
         val synthetic = dv.assembled.bySplit["test"].orEmpty().any { it.origin == "synthetic" }
-        val prep = Prepared(base, File(spec.patchFile.path), items, test, synthetic, dv, spec)
+        val prep = Prepared(base, File(spec.patchFile.path), items, test, synthetic, dv, spec, sameDataset)
         val steps = 2L * (items.size * (1 + if (o.includeGroundedMetrics) 1 else 0) + (if (o.includeRetention) EvalMetrics.PROBES.size else 0) + test.size)
         val ev = LocalEvaluation("leval-" + ids.hex(10), pid, spId, LocalEvalState.QUEUED, Progress(0, steps, "steps"), "Queued", null, null, emptyList(), emptyList(), dv.sha, test.size, items.size, clock.nowMs(), null)
         val rec = Rec(ev)
@@ -224,6 +244,7 @@ class EvalService(
             "Metrics labelled \"with source excerpts in the prompt\" measure prompting with retrieved text, not what the weights learned.")
         if (rows.any { it.n < SMALL_N }) caveats.add("Some metrics have n < $SMALL_N: statistically weak: " + rows.filter { it.n < SMALL_N }.joinToString { "${it.id} (n=${it.n})" })
         if (o.includeGroundedMetrics.not()) caveats.add("Grounded metrics were not measured.")
+        if (!prep.sameDataset) caveats.add("The dataset was rebuilt after training. No held-out chunk was found among the chunks this specialist trained on, but the split is not the one used at training time.")
         val spInfo = specs.info(prep.spec.id)
         val view = EvaluationView(prep.spec.projectId, rec.ev.id, "Base: ${host.baseRef(prep.spec.projectId)?.name ?: prep.spec.baseModelId}", "Specialist ${spInfo?.version ?: prep.spec.version}",
             rows, caveats, allowed, reason, false, clock.nowMs())

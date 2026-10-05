@@ -314,7 +314,7 @@ class TrainingService(
         if (host.projectDir(pid) == null) throw StudioException(StudioError.NotFound("project ${pid.value}"))
         if (s.kind != TrainingMethodKind.LOCAL_FULL && s.kind != TrainingMethodKind.LOCAL_PARTIAL)
             throw StudioException(StudioError.Invalid("NOT_LOCAL_TRAINING", "${s.kind} does not train on this phone. Retrieval and prompting are not training; desktop jobs use the export flow."))
-        if (s.epochs < 1 || s.epochs > 20 || s.contextTokens !in 64..8192 || s.maxSequences < 1 || s.learningRate <= 0f || s.learningRate > 1f || s.trainableLastLayers < 0)
+        if (s.epochs < 1 || s.epochs > 20 || s.contextTokens !in 64..8192 || s.maxSequences !in 1..100_000 || s.learningRate <= 0f || s.learningRate > 1f || s.trainableLastLayers < 0)
             throw StudioException(StudioError.Invalid("BAD_SETTINGS", "Training settings are out of range"))
         synchronized(lock) {
             runs.values.firstOrNull { it.run.projectId == pid && !it.run.isTerminal }?.let {

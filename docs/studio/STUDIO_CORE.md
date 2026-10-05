@@ -52,3 +52,10 @@ project files are set aside (`.corrupt-*`), reported in `StudioCore.startupProbl
 (`factory/tests/fixtures/studio`), an independent re-implementation of the desktop import rules (`JobValidator`), FakeStudio parity, a real `JavaHttp`
 against a loopback server, and `SampleEmitTest`, which writes `build/sample/job.zip` for `factory/tests/test_kotlin_job_interop.py`
 (`LLMT_KOTLIN_JOB_ZIP=studio-core/build/sample/job.zip pytest factory/tests/test_kotlin_job_interop.py` runs the real Python `import-job` on it).
+
+## v2 (phone-first) services
+`LocalStudio` (+ `TrainingService`, `EvalService`, `SpecialistRegistry`, `EngineCore`) implement chat, local training, specialists, local evaluation and A/B behind
+`InferenceBackend` / `TrainingBackend` (studio-api `Backends.kt`). Contract and honesty rules: `V2_API.md`. Layout additions under `projects/<id>/`:
+`training/<run>/{run.json,sequences.jsonl,work/}`, `specialists/<id>/{specialist.json,patch.hagpatch}` + `specialists/registry.json`, `chats/<id>.json`, `local_eval/<id>.json`, `ab/<id>.json`;
+`workspace/local/file_hashes.json` caches base-model hashes (a hash recorded by the downloader in `acquired.json` is used when present).
+Tests use scripted backends (`ScriptedEngine.kt`, `LocalRig.kt`); real-engine proofs belong to the engine/emulator tests.

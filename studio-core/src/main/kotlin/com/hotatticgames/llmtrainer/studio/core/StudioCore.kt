@@ -68,6 +68,7 @@ class StudioCore(
     private class EvalRec(val view: EvaluationView, val jobId: String, val status: String, val reportBytes: ByteArray, val kind: String, val refs: List<String>, val hashes: Map<String, String>, val method: String?)
 
     private val modelFiles = ModelFiles(File(wsDir, "models"))
+    private val assembled = java.util.concurrent.ConcurrentHashMap<String, Pair<String, DatasetEngine.Assembled>>()
     private val local: LocalStudio
 
     /** What the phone-first services need from this class (read-only views taken without blocking the UI). */
@@ -94,7 +95,11 @@ class StudioCore(
             val p = proj(id) ?: return null
             val ds = p.dataset ?: return null
             val inc = ds.chunks.filter { ds.isIncluded(it) }.map { it.ref }.toSet()
-            return DataView(DatasetEngine.datasetSha(ds), ds.meta.status, ds.meta.splitsAvailable, ds.chunks, inc, p.domain) { DatasetEngine.assemble(ds) }
+            val sha = DatasetEngine.datasetSha(ds)
+            return DataView(sha, ds.meta.status, ds.meta.splitsAvailable, ds.chunks, inc, p.domain) {
+                // assembling (similarity/leakage passes) is not cheap: cache per dataset hash (the hash covers every input)
+                assembled.compute(p.id) { _, cur -> if (cur != null && cur.first == sha) cur else sha to DatasetEngine.assemble(ds) }!!.second
+            }
         }
         override fun sourceFacts(id: ProjectId): Map<String, SourceFact> =
             proj(id)?.sources?.all()?.associate { it.sourceId to SourceFact(it.sha256, it.trainable, it.name) } ?: emptyMap()
@@ -370,7 +375,7 @@ class StudioCore(
 
     override fun deleteProject(id: ProjectId): StudioResult<Unit> {
         val p = synchronized(lock) { projects.remove(id.value) } ?: return err(StudioError.NotFound("project ${id.value}"))
-        local.projectDeleted(ProjectId(id.value))
+        local.projectDeleted(ProjectId(id.value)); assembled.remove(id.value)
         synchronized(p.monitor) { p.dir.deleteRecursively() }
         return ok(Unit)
     }

@@ -275,6 +275,35 @@ class LocalChatEvalTest {
         assertTrue(noRetention.metrics.none { it.id == "general_probe_pass_rate" })
     }
 
+    @Test fun evaluationRefusesWhenARebuiltDatasetPutsTrainedChunksInTheHeldOutSplit() {
+        val r = LocalRig(nDocs = 40)
+        val sp = r.trainToCompletion()
+        val trained = File(r.rig.dir, "projects/${r.p.value}/training/${sp.trainingRunId}/sequences.jsonl").readLines()
+            .flatMap { l -> val a = org.json.JSONObject(l).getJSONArray("chunks"); (0 until a.length()).map { a.getString(it) } }.toSet()
+        var blockedOnce = false
+        for (seed in listOf(11L, 12L, 13L, 14L)) {
+            r.s.buildDataset(r.p, DatasetOptions(seed = seed)).ok()
+            r.s.approveDataset(r.p).ok()
+            val overlap = r.testRefs().intersect(trained)
+            val res = r.s.startLocalEvaluation(r.p, sp.id, LocalEvalOptions(maxItems = 30))
+            if (overlap.isNotEmpty()) {
+                assertEquals("HELDOUT_OVERLAP", res.err().code, "trained chunks in the held-out split must be refused")
+                blockedOnce = true
+            } else {
+                val e = res.ok(); r.run()
+                assertTrue(r.s.localEvaluation(e.id).ok().view!!.caveats.any { it.contains("rebuilt after training") })
+            }
+        }
+        assertTrue(blockedOnce, "at least one re-split should have produced overlap with 40 documents")
+    }
+
+    @Test fun evaluationRefusesAStaleOrUnapprovedDataset() {
+        val r = LocalRig(nDocs = 40)
+        val sp = r.trainToCompletion()
+        r.s.removeSource(r.p, r.s.listSources(r.p).ok().first().sourceId).ok()
+        assertEquals("DATASET_NOT_APPROVED", r.s.startLocalEvaluation(r.p, sp.id, LocalEvalOptions()).err().code)
+    }
+
     @Test fun evaluationRefusesWithoutHeldOutMaterialOrEngine() {
         val r = LocalRig(nDocs = 2)
         // too few groups: no split exists at all

@@ -15,8 +15,9 @@ Additive to `FACADE.md`. Source of truth: `studio-api/.../Backends.kt` (engine s
   `generate(chat, prompt, sampling, cancel, sink)`, `score(chat, text, cancel)`, `closeChat`, `closeModel`. Throws `BackendException(code)`.
 * `TrainingBackend`: `status`, `estimate(base, params)`, `train(base, texts, params, workDir, outPatch, cancel, progress)`, `patchInfo`.
   Semantics mirror `hag_train` (checkpoints in `workDir`, same inputs resume, patch holds only changed tensors, base never modified).
-* Constructed via `StudioFactory.createLocal(rootDir, snapshot, host, inference, trainer)`; with null backends everything v2 reports
-  "engine unavailable" and v1 behaviour is unchanged.
+* Constructed via `StudioFactory.createLocal(rootDir, snapshot, host, inference, trainer)` (or `StudioCore(..., inference, trainer)`); with null backends everything v2 reports
+  "engine unavailable" and v1 behaviour is unchanged. `StudioCore.releaseModels()` closes the resident model (call it when the app is backgrounded).
+* One engine, limited RAM: at most one model is resident (chat keeps it between messages; evaluation and A/B load/close). While a training run is active inference calls fail with `Conflict`; a generation in flight makes a queued run wait (PAUSED, "busy").
 
 ## Studio methods
 Engine/models: `engineStatus`, `installedModels`, `projectModelState` (capabilities with reasons for chat base/specialist, train, evaluate).
@@ -42,7 +43,8 @@ and refuses on any finding. Sequences are packed deterministically (seeded), cap
 
 ## Run persistence
 `projects/<id>/training/<run>/run.json` (+`.bak`), `sequences.jsonl`, `work/` (engine checkpoints). After process death a RUNNING run reloads as PAUSED/resumable.
-A checkpoint the engine rejects (CORRUPT) is set aside (`work.corrupt-*`) and the run restarts from scratch with `checkpoint = RECOVERED_FROM_SCRATCH`.
+`checkpoint = PRESENT` means checkpoint files exist; the engine validates them on resume. A checkpoint the engine rejects (CORRUPT) is set aside (`work.corrupt-*`, kept for inspection) and the run restarts from scratch with `checkpoint = RECOVERED_FROM_SCRATCH`.
+Resuming re-checks the gates, the saved inputs hash, the base model, and that no source the run used was removed/changed (otherwise the run is cancelled and its checkpoints discarded).
 Specialists: `projects/<id>/specialists/<id>/{specialist.json, patch.hagpatch}`; verified by re-hashing patch + base hash + (engine available) reload.
 A specialist is `stale` when a source it was trained on was removed/changed.
 
@@ -60,3 +62,18 @@ general-probe pass rate dropped by more than 0.10. Semantics mirror `factory/llm
 ## Fake
 `FakeStudio.sampleV2()` = base installed, one trained+selected specialist, engine available. Knobs on `fake.v2`: `engineAvailable`, `charging`, `batteryPercent`, `thermal`, `freeStorageMb`.
 `tick()` advances training (3 steps/tick of 12) and completes evaluations; `simulateProcessDeath()` pauses runs and interrupts evaluations.
+
+## Held-out integrity (evaluation)
+The held-out chunks must be material the specialist did not train on. If the dataset hash equals the one the specialist was trained on this holds by construction.
+If the dataset was rebuilt since, the chunk ids recorded in the training run (`sequences.jsonl`) are compared with the current TEST chunks; any overlap, a changed source,
+or a missing training record refuses the evaluation (`HELDOUT_OVERLAP` / `DATASET_CHANGED`). The dataset must be APPROVED.
+
+## Device snapshot keys read
+`availRamBytes`, `procMemAvailableBytes`, `lowMemory`, `lowMemoryThresholdBytes`, `freeStorageBytes`, `batteryPct`, `thermalStatus` (0..6 or name), `powerSaveMode`, and
+**`isCharging`** (also `charging`/`batteryCharging`/`plugged`). The current host `DeviceProbe` does not report charger state yet: until it does, training needs
+`TrainingSettings.ownerConfirmsPluggedIn = true` (the UI should show an explicit "I have plugged in the charger" checkbox).
+
+## Error codes worth handling in the UI
+`ENGINE_UNAVAILABLE`, `CHAT_UNAVAILABLE`, `TRAINING_BLOCKED` (reasons list: `NOT_CHARGING`, `CHARGER_UNKNOWN`, `BATTERY_LOW`, `THERMAL`, `POWER_SAVE`, `RAM_UNKNOWN_OR_LOW`, `TOO_LARGE`, `STORAGE`,
+`NOT_TRAINABLE`, `BASE_NOT_INSTALLED`, `DATASET_NOT_APPROVED`, `NO_SPLITS`, `TOO_LITTLE_DATA`, `LEAKAGE_DETECTED`, `LICENSE_*`), `CONFIRMATION_REQUIRED`, `SOURCE_CHANGED`,
+`SPECIALIST_UNVERIFIED`, `NO_SOURCES_INDEXED`, `OUT_OF_MEMORY`, `UNSUPPORTED`, `HELDOUT_OVERLAP`, `DATASET_CHANGED`, `LICENSE_GATE` (patch export), `Conflict` (engine busy).
