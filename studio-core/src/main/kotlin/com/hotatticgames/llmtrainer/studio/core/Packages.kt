@@ -64,6 +64,7 @@ object Packages {
 
     private fun excludeReason(d: DChunk, ds: DatasetState): String {
         d.chunk.excludeReason?.let { return it }
+        if (!d.trainable && d.reason?.startsWith("source is reference-only") == true) return "reference_only_source"
         if (ReviewFlag.POSSIBLE_LEAKAGE in d.flags) return "possible_leakage"
         if (ReviewFlag.DUPLICATE in d.flags) return "duplicate_chunk"
         if (ReviewFlag.HEADER_FOOTER_NOISE in d.flags) return "header_footer_noise"
@@ -277,7 +278,7 @@ object Packages {
         val specialist = subj?.str("specialist") ?: "specialist"
         val view = EvaluationView(projectId, r.str("eval_id") ?: m.obj("evaluation")?.str("eval_id") ?: runIdFallback, base, specialist, rows, caveats, allowed, reason, stubFlags, nowMs)
         val refs = spec?.strList("artifact_refs").orEmpty()
-        val hashes = spec?.obj("sha256s")?.let { h -> h.keySet().associateWith { h.getString(it) } } ?: emptyMap()
+        val hashes = spec?.obj("sha256s")?.let { h -> h.keyList().associateWith { h.getString(it) } } ?: emptyMap()
         return ParsedResults(view, jobId, status, reportRaw, m, spec?.str("kind") ?: "none", refs, hashes, spec?.str("method"))
     }
 
@@ -354,7 +355,7 @@ object Packages {
         val stub = ev?.bool("is_stub") == true
         checks.add(CheckResult("claim consistency", !(claim && stub), if (claim && stub) "claims improvement but the evaluation is a stub" else "ok"))
         val training = m.obj("training")
-        val hashes = training?.obj("artifact_sha256s")?.let { h -> h.keySet().associateWith { h.getString(it) } } ?: emptyMap()
+        val hashes = training?.obj("artifact_sha256s")?.let { h -> h.keyList().associateWith { h.getString(it) } } ?: emptyMap()
         val refs = training?.strList("artifact_refs").orEmpty()
         val artifactsOk = refs.all { it in hashes && Regex("^sha256:[0-9a-f]{64}$").matches(hashes.getValue(it)) }
         checks.add(CheckResult("artifact hashes", artifactsOk, if (refs.isEmpty()) "no artifacts referenced (no parameter training recorded)" else if (artifactsOk) "${refs.size} artifact reference(s) with sha256" else "an artifact reference has no valid sha256"))

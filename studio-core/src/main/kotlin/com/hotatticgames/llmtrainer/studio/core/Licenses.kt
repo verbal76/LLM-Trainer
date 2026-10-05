@@ -110,7 +110,7 @@ class LicenseService(
     @Synchronized private fun load() {
         val o = Fs.readJson(storeFile) { problems.add(it) } ?: return
         o.obj("attestations")?.let { a ->
-            for (k in a.keySet()) {
+            for (k in a.keyList()) {
                 val r = a.obj(k) ?: continue
                 try {
                     attestations[k] = OwnerAttestation(
@@ -121,7 +121,7 @@ class LicenseService(
             }
         }
         o.obj("pending")?.let { a ->
-            for (k in a.keySet()) {
+            for (k in a.keyList()) {
                 val r = a.obj(k) ?: continue
                 try { pending[k] = PendingFetch(k, r.str("url")!!, r.lng("fetched_at")!!, r.str("sha256")!!, r.lng("bytes") ?: 0L, r.str("file"), r.bool("imported") ?: false) }
                 catch (e: Exception) { /* a lost pending fetch only means the owner re-fetches */ }

@@ -93,7 +93,7 @@ object J {
             }
             is Iterable<*> -> { sb.append('['); var f = true; for (e in v) { if (!f) sb.append(','); f = false; write(sb, e, sort) }; sb.append(']') }
             is Array<*> -> write(sb, v.toList(), sort)
-            is JSONObject -> write(sb, v.keySet().associateWith { v.get(it) }, sort)
+            is JSONObject -> write(sb, v.keyList().associateWith { v.get(it) }, sort)
             is JSONArray -> write(sb, (0 until v.length()).map { v.get(it) }, sort)
             else -> quote(sb, v.toString())
         }
@@ -120,6 +120,8 @@ object J {
     fun parseOrNull(s: String): JSONObject? = try { JSONObject(s) } catch (e: Exception) { null }
 }
 
+/** `JSONObject.keySet()` only exists from API 33; `keys()` exists everywhere (host minSdk 26). */
+fun JSONObject.keyList(): List<String> { val out = ArrayList<String>(); val it = keys(); while (it.hasNext()) out.add(it.next()); return out }
 fun JSONObject.str(k: String): String? = if (!has(k) || isNull(k)) null else opt(k) as? String
 fun JSONObject.lng(k: String): Long? = if (!has(k) || isNull(k)) null else (opt(k) as? Number)?.toLong()
 fun JSONObject.int(k: String): Int? = lng(k)?.toInt()

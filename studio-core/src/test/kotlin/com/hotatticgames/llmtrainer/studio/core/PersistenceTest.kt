@@ -143,6 +143,18 @@ class PersistenceTest {
         assertEquals(1, reborn.listProjects().size)
     }
 
+    @Test fun anInterruptedIngestIsReportedOnNextStartWithWhatFinished() {
+        val rig = TK.rig(); val s = rig.open()
+        val p = s.createProject(NewProject("x", "", "")).ok().id
+        s.ingest(p, TK.corpus(3), RightsStatus.OWNER_AUTHORED).ok()
+        val f = File(rig.dir, "projects/${p.value}/ingest_report.json")
+        val o = JSONObject(f.readText()); o.put("finished", false); f.writeText(o.toString())          // what a process killed mid-batch leaves behind
+        val reborn = rig.open()
+        assertTrue(reborn.startupProblems.any { it.contains("interrupted after 3 file(s)") }, reborn.startupProblems.toString())
+        assertEquals(3, reborn.lastIngestReport(p).ok()!!.items.size)                                  // finished files are kept and visible
+        assertEquals(3, reborn.listSources(p).ok().size)
+    }
+
     @Test fun deletedProjectsStayDeletedAndOthersAreUntouched() {
         val rig = TK.rig(); val s = rig.open()
         val a = TK.readyProject(s, 4, name = "A"); val b = TK.readyProject(s, 4, name = "B")

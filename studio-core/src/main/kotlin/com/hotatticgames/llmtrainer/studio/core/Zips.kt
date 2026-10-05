@@ -85,7 +85,7 @@ object Zips {
         val listed = o.obj("files") ?: return listOf("checksums.json has no files map")
         val problems = ArrayList<String>()
         val actual = files.keys.filter { it != "checksums.json" }.toSet()
-        val claimed = listed.keySet()
+        val claimed = listed.keyList().toSet()
         for (m in actual - claimed) problems.add("member not covered by checksums.json: $m")
         for (m in claimed - actual) problems.add("checksums.json lists a missing member: $m")
         for (m in actual intersect claimed) {

@@ -48,16 +48,17 @@ class StudioCore(
     private val lock = Any()
 
     private class PState(val id: String, val dir: File) {
-        var name = ""; var domain = ""; var purpose = ""; var createdAt = 0L; var updatedAt = 0L
-        var baseModelId: String? = null; var variantId: String? = null; var methodId: String? = null
-        var trainingExported = false; var referenceExported = false; var heldOutExported = false; var specialistExported = false
+        // Fields read by the lock-free summary path are @Volatile; writers hold [monitor].
+        @Volatile var name = ""; @Volatile var domain = ""; @Volatile var purpose = ""; @Volatile var createdAt = 0L; @Volatile var updatedAt = 0L
+        @Volatile var baseModelId: String? = null; @Volatile var variantId: String? = null; @Volatile var methodId: String? = null
+        @Volatile var trainingExported = false; @Volatile var referenceExported = false; @Volatile var heldOutExported = false; @Volatile var specialistExported = false
         var specialistSeq = 0
         var commercial = false; var redistribute = false
         val jobIds = ArrayList<String>()
         lateinit var sources: SourceStore
-        var dataset: DatasetState? = null
-        var report: IngestReport? = null
-        var evaluation: EvalRec? = null
+        @Volatile var dataset: DatasetState? = null
+        @Volatile var report: IngestReport? = null
+        @Volatile var evaluation: EvalRec? = null
         val monitor = Any()
     }
 
@@ -122,8 +123,8 @@ class StudioCore(
     private fun provToMap(s: ProvenanceSummary?) = s?.let { linkedMapOf("source_id" to it.sourceId, "sha256" to it.sha256, "mime" to it.mime, "size" to it.sizeBytes, "ingested_at" to it.ingestedAt,
         "pages" to it.pages, "chunks" to it.chunks, "extractor" to it.extractor, "rights" to it.rights.name) }
 
-    private fun saveReport(p: PState, r: IngestReport) {
-        Fs.writeJson(File(p.dir, "ingest_report.json"), linkedMapOf("schema" to SCHEMA, "at" to r.at, "items" to r.items.map { i ->
+    private fun saveReport(p: PState, r: IngestReport, finished: Boolean = true) {
+        Fs.writeJson(File(p.dir, "ingest_report.json"), linkedMapOf("schema" to SCHEMA, "at" to r.at, "finished" to finished, "items" to r.items.map { i ->
             linkedMapOf("name" to i.name, "status" to i.status.name, "source_id" to i.sourceId, "duplicate_of" to i.duplicateOfSourceId,
                 "issues" to i.issues.map { mapOf("code" to it.code.name, "message" to it.message) }, "provenance" to provToMap(i.provenance))
         }))
@@ -131,6 +132,7 @@ class StudioCore(
 
     private fun readReport(p: PState): IngestReport? {
         val o = Fs.readJson(File(p.dir, "ingest_report.json")) { problems.add("project ${p.id}: $it") } ?: return null
+        if (o.bool("finished") == false) problems.add("project ${p.id}: an ingest was interrupted after ${o.objList("items").size} file(s); the report shows what finished, add the remaining files again")
         return try {
             IngestReport(ProjectId(p.id), o.objList("items").map { i ->
                 IngestItem(i.str("name") ?: "", IngestStatus.valueOf(i.str("status")!!), i.str("source_id"), i.str("duplicate_of"),
@@ -160,7 +162,7 @@ class StudioCore(
             val view = EvaluationView(ProjectId(p.id), o.str("run_id")!!, o.str("base") ?: "", o.str("specialist") ?: "",
                 o.objList("metrics").map { m -> MetricRow(m.str("id")!!, m.str("label") ?: "", m.bool("hib") ?: true, m.dbl("base")!!, m.dbl("specialist")!!, m.dbl("delta")!!, m.dbl("ci_low"), m.dbl("ci_high"), m.int("n") ?: 0) },
                 o.strList("caveats"), o.bool("claim_allowed") ?: false, o.str("claim_reason") ?: "", o.bool("is_stub") ?: true, o.lng("imported_at") ?: 0L)
-            val hashes = o.obj("artifact_sha256s")?.let { h -> h.keySet().associateWith { h.getString(it) } } ?: emptyMap()
+            val hashes = o.obj("artifact_sha256s")?.let { h -> h.keyList().associateWith { h.getString(it) } } ?: emptyMap()
             EvalRec(view, o.str("job_id") ?: "", o.str("status") ?: "unknown", File(d, "evaluation_report.json").takeIf { it.isFile }?.readBytes() ?: ByteArray(0),
                 o.str("specialist_kind") ?: "none", o.strList("artifact_refs"), hashes, o.str("method"))
         } catch (e: Exception) { problems.add("project ${p.id}: evaluation unreadable and ignored"); null }
@@ -258,7 +260,8 @@ class StudioCore(
 
     override fun listProjects(): List<ProjectSummary> {
         val ps = synchronized(lock) { projects.values.toList() }
-        return ps.sortedWith(compareBy({ -it.updatedAt }, { it.id })).map { p -> synchronized(p.monitor) { summary(p) } }
+        // Lock-free on purpose: the dashboard must stay responsive while a long ingest or dataset build holds a project's monitor.
+        return ps.sortedWith(compareBy({ -it.updatedAt }, { it.id })).map { p -> summary(p) }
     }
 
     override fun createProject(p: NewProject): StudioResult<ProjectSummary> {
@@ -274,11 +277,14 @@ class StudioCore(
             s.sources = SourceStore(File(dir, "sources"), problems)
             saveProject(s)
             synchronized(lock) { projects[id] = s }
-            ok(synchronized(s.monitor) { summary(s) })
+            ok(summary(s))
         } catch (e: IOException) { err(io(e)) }
     }
 
-    override fun getProject(id: ProjectId) = withP(id) { ok(summary(it)) }
+    override fun getProject(id: ProjectId): StudioResult<ProjectSummary> {
+        val p = synchronized(lock) { projects[id.value] } ?: return err(StudioError.NotFound("project ${id.value}"))
+        return try { ok(summary(p)) } catch (e: RuntimeException) { err(StudioError.Io("Internal error (${e.javaClass.simpleName}): ${e.message}")) }
+    }
 
     override fun deleteProject(id: ProjectId): StudioResult<Unit> {
         val p = synchronized(lock) { projects.remove(id.value) } ?: return err(StudioError.NotFound("project ${id.value}"))
@@ -338,7 +344,7 @@ class StudioCore(
 
     override fun ingest(projectId: ProjectId, inputs: List<SourceInput>, rights: RightsStatus, onProgress: (Progress) -> Unit) = withP(projectId) { p ->
         val before = p.sources.all().size
-        val report = ingestSvc.ingest(projectId, p.sources, inputs, rights, onProgress) { partial -> try { saveReport(p, partial) } catch (_: IOException) { } }
+        val report = ingestSvc.ingest(projectId, p.sources, inputs, rights, onProgress) { partial -> try { saveReport(p, partial, finished = false) } catch (_: IOException) { } }
         p.report = report
         saveReport(p, report)
         if (p.sources.all().size != before) { markStale(p); resetExports(p, true) }
@@ -364,7 +370,7 @@ class StudioCore(
             // purge everything derived from the source right now; the owner must rebuild before using the dataset again
             val keep = ds.chunks.filter { it.sourceId != sourceId }
             val keepSynth = ds.synth.filter { it.sourceId != sourceId }
-            val dec = LinkedHashMap(ds.decisions.filterKeys { k -> !k.startsWith("$sourceId/") })
+            val dec = java.util.concurrent.ConcurrentHashMap(ds.decisions.filterKeys { k -> !k.startsWith("$sourceId/") })
             val meta = DatasetMeta(ds.meta.version, ds.meta.options, ds.meta.builtAt, null, DatasetStatus.STALE, ds.meta.groupBy, ds.meta.assignment, ds.meta.notes, ds.meta.splitsAvailable, ds.meta.sourceSnapshot.filter { it["id"] != sourceId })
             p.dataset = DatasetState(meta, keep, keepSynth, dec)
             persistDatasetFull(p)
@@ -416,7 +422,7 @@ class StudioCore(
         val prev = p.dataset
         val snap = srcs.sortedBy { it.sourceId }.map { s -> linkedMapOf<String, Any?>("id" to s.sourceId, "sha256" to s.sha256, "rights" to s.rights.name) }
         val meta = DatasetMeta((prev?.meta?.version ?: 0) + 1, options, clock.nowMs(), null, DatasetStatus.NEEDS_REVIEW, built.groupBy, built.assignment, built.notes, built.splitsAvailable, snap)
-        val dec = LinkedHashMap<String, Decision>()
+        val dec = java.util.concurrent.ConcurrentHashMap<String, Decision>()
         if (prev != null) {
             val byRef = built.chunks.associateBy { it.ref }
             for ((k, d) in prev.decisions) { val c = byRef[k]; if (c != null && c.chunk.sha256 == d.textSha) dec[k] = d }

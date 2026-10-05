@@ -70,14 +70,18 @@ interface Http {
     ): DownloadOutcome
 }
 
-class JavaHttp(private val userAgent: String = "LLMTrainerStudio/1") : Http {
+class JavaHttp(
+    private val userAgent: String = "LLMTrainerStudio/1",
+    /** Test seam only: how a URL becomes a connection. The HTTPS-only policy is enforced on the URL string BEFORE this is called. */
+    private val opener: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+) : Http {
     private val maxRedirects = 5
 
     private fun open(url0: String, timeoutMs: Int, range: Long?): Pair<HttpURLConnection, String> {
         var url = url0
         for (hop in 0..maxRedirects) {
             if (!url.startsWith("https://", ignoreCase = true)) throw HttpException(HttpException.Kind.NOT_HTTPS, "Only HTTPS is allowed: $url")
-            val c = try { URL(url).openConnection() as HttpURLConnection } catch (e: Exception) { throw HttpException(HttpException.Kind.PROTOCOL, "Bad URL: $url") }
+            val c = try { opener(URL(url)) } catch (e: Exception) { throw HttpException(HttpException.Kind.PROTOCOL, "Bad URL: $url") }
             c.instanceFollowRedirects = false
             c.connectTimeout = timeoutMs
             c.readTimeout = timeoutMs

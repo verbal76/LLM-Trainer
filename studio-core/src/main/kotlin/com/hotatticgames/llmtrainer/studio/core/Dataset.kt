@@ -31,7 +31,7 @@ data class Example(
 data class Decision(val included: Boolean, val textSha: String)
 
 class DatasetMeta(
-    val version: Int, val options: DatasetOptions, val builtAt: Long, var approvedAt: Long?, var status: DatasetStatus,
+    val version: Int, val options: DatasetOptions, val builtAt: Long, @Volatile var approvedAt: Long?, @Volatile var status: DatasetStatus,
     val groupBy: String, val assignment: Map<String, String>, val notes: List<String>, val splitsAvailable: Boolean,
     val sourceSnapshot: List<Map<String, Any?>>,
 )
@@ -384,7 +384,7 @@ class DatasetStore(private val dir: File, private val problems: MutableList<Stri
     }
 
     fun saveReview(ds: DatasetState) {
-        Fs.writeJson(reviewFile, linkedMapOf("schema" to SCHEMA, "decisions" to ds.decisions.mapValues { mapOf("included" to it.value.included, "text_sha" to it.value.textSha) }))
+        Fs.writeJson(reviewFile, linkedMapOf("schema" to SCHEMA, "decisions" to ds.decisions.toSortedMap().mapValues { mapOf("included" to it.value.included, "text_sha" to it.value.textSha) }))
     }
 
     fun saveMeta(ds: DatasetState) {
@@ -401,9 +401,9 @@ class DatasetStore(private val dir: File, private val problems: MutableList<Stri
             val oo = b.obj("options")!!
             val opts = DatasetOptions(oo.lng("seed")!!, oo.int("chunk_target_tokens")!!, oo.dbl("held_out_fraction")!!, oo.dbl("validation_fraction")!!,
                 oo.bool("include_synthetic")!!, oo.bool("exclude_reference_only_sources")!!)
-            val asg = b.obj("assignment")?.let { a -> a.keySet().associateWith { a.getString(it) } } ?: emptyMap()
+            val asg = b.obj("assignment")?.let { a -> a.keyList().associateWith { a.getString(it) } } ?: emptyMap()
             val meta = DatasetMeta(b.int("version")!!, opts, b.lng("built_at")!!, b.lng("approved_at"), DatasetStatus.valueOf(b.str("status")!!), b.str("group_by") ?: "document", asg,
-                b.strList("notes"), b.bool("splits_available") ?: true, b.objList("source_snapshot").map { o -> o.keySet().associateWith { o.opt(it) } })
+                b.strList("notes"), b.bool("splits_available") ?: true, b.objList("source_snapshot").map { o -> o.keyList().associateWith { o.opt(it) } })
             val chunks = Fs.readLines(chunksFile).map { line ->
                 val o = org.json.JSONObject(line)
                 val c = Chunk(o.str("id")!!, o.strList("section_path"), o.int("page"), o.int("char_start")!!, o.int("char_end")!!, o.str("role")!!, o.str("kind")!!, o.str("exclude_reason"),
@@ -413,9 +413,9 @@ class DatasetStore(private val dir: File, private val problems: MutableList<Stri
             }
             val synth = Fs.readLines(synthFile).map { line -> val o = org.json.JSONObject(line)
                 Synth(o.str("id")!!, o.str("chunk_ref")!!, o.str("source_id")!!, o.str("source_name") ?: "", o.str("section") ?: "", o.int("page"), o.str("prompt")!!, o.str("response")!!) }
-            val dec = LinkedHashMap<String, Decision>()
+            val dec = java.util.concurrent.ConcurrentHashMap<String, Decision>()
             Fs.readJson(reviewFile) { problems.add("dataset review: $it") }?.obj("decisions")?.let { d ->
-                for (k in d.keySet()) d.obj(k)?.let { dec[k] = Decision(it.bool("included") ?: true, it.str("text_sha") ?: "") }
+                for (k in d.keyList()) d.obj(k)?.let { dec[k] = Decision(it.bool("included") ?: true, it.str("text_sha") ?: "") }
             }
             return DatasetState(meta, chunks, synth, dec)
         } catch (e: Exception) {

@@ -18,7 +18,14 @@ class SampleEmitTest {
         dir.mkdirs()
         val rig = TK.rig()
         val s = rig.open()
-        val p = TK.readyProject(s, 8)
+        val p = s.createProject(NewProject("Motorcycle Mechanic", "motorcycle service", "Diagnose and repair common faults")).ok().id
+        s.ingest(p, TK.corpus(8), RightsStatus.OWNER_AUTHORED).ok()
+        // the rest of a realistic library: a torque table (reference only), a licensed manual used for retrieval only, and a noisy scan-like text
+        val csv = "part,torque_nm,notes\n" + (1..30).joinToString("\n") { "bolt-$it,${20 + it},check after first ride number $it" }
+        s.ingest(p, listOf(TK.input("torque-table.csv", csv, "text/csv")), RightsStatus.OWNER_AUTHORED).ok()
+        s.ingest(p, listOf(TK.input("dealer-manual.md", TK.doc(77), "text/markdown")), RightsStatus.REFERENCE_ONLY).ok()
+        s.ingest(p, listOf(TK.input("noisy.md", "# Scan\n\n1234 5678 9012 3456 7890 ---- ==== #### 1234 5678\n\n## Real\n\n" + TK.doc(5).substringAfter("## "))), RightsStatus.OWNER_AUTHORED).ok()
+        s.buildDataset(p).ok()
         s.approveDataset(p).ok()
         TK.verifyLicense(rig, s)
         s.selectBaseModel(p, TK.MODEL, null).ok()
