@@ -86,9 +86,9 @@ HAG_API hag_status hag_train(const char *base, const char *const *texts, int n, 
     }
     FILE *f = fopen(out_patch, "w");
     if (!f) return err(HAG_ERR_IO, "cannot write patch");
-    fprintf(f, "n=%d first=%s last=%s ctx=%d batch=%d ep=%d lr=%.6f val=%.3f seed=%u thr=%d last=%d emb=%d ck=%d mem=%zu\n", n, texts[0], texts[n - 1],
+    fprintf(f, "n=%d first=%s last=%s ctx=%d batch=%d ep=%d lr=%.6f val=%.3f seed=%u thr=%d last=%d emb=%d ck=%d mem=%zu lora=%d alpha=%.3f\n", n, texts[0], texts[n - 1],
             p->n_ctx, p->n_batch, p->epochs, p->learning_rate, p->val_fraction, p->seed, p->n_threads, p->trainable_last_layers, p->train_embeddings,
-            p->checkpoint_every_steps, p->max_memory_bytes);
+            p->checkpoint_every_steps, p->max_memory_bytes, p->lora_rank, (double)p->lora_alpha);
     fclose(f);
     return ok();
 }

@@ -104,7 +104,7 @@ jobs:
           path: runtime/build/llama.cpp
           key: llama-cpp-${{ hashFiles('native/fetch-llama.sh') }}
       - name: JVM module tests
-        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
+        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test :engine-adapter:test
       - name: "Native engine tests (JNI host test against a stub engine, host-api + runtime JVM suites)"
         run: |
           [ -x tools/ci/native-engine-tests.sh ] || { echo "::error::tools/ci/native-engine-tests.sh is missing: a native release cannot skip the engine tests"; exit 1; }

@@ -192,7 +192,7 @@ int onTrain(const hag_train_event *ev, void *user) {
 
 // Double-array layout shared with NativeBridge.kt (TrainConfig.toNative()).
 enum { P_N_CTX, P_N_BATCH, P_EPOCHS, P_LR, P_VAL_FRACTION, P_SEED, P_N_THREADS, P_LAST_LAYERS, P_TRAIN_EMB, P_CKPT_EVERY,
-       P_MAX_MEM, P_COUNT };
+       P_MAX_MEM, P_LORA_RANK, P_LORA_ALPHA, P_COUNT };
 
 bool readTrainParams(JNIEnv *env, jdoubleArray p, hag_train_params *out) {
     if (p == nullptr || env->GetArrayLength(p) < P_COUNT) { throwHag(env, -100, "bad train params array"); return false; }
@@ -211,6 +211,8 @@ bool readTrainParams(JNIEnv *env, jdoubleArray p, hag_train_params *out) {
     out->train_embeddings = static_cast<int32_t>(v[P_TRAIN_EMB]);
     out->checkpoint_every_steps = static_cast<int32_t>(v[P_CKPT_EVERY]);
     out->max_memory_bytes = v[P_MAX_MEM] > 0 ? static_cast<size_t>(v[P_MAX_MEM]) : 0;
+    out->lora_rank = static_cast<int32_t>(v[P_LORA_RANK]);          // 0 = tune base weights; > 0 = LoRA adapters (base frozen)
+    out->lora_alpha = static_cast<float>(v[P_LORA_ALPHA]);          // 0 = 2 * rank
     return true;
 }
 

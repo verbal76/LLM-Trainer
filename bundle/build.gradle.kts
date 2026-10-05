@@ -14,7 +14,7 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
-val bundledModules = listOf(":qualify", ":extract", ":studio-api", ":studio-core")
+val bundledModules = listOf(":qualify", ":extract", ":studio-api", ":studio-core", ":engine-adapter")
 val androidJar = rootProject.extra["androidJar"] as String
 val sdkRoot = rootProject.extra["androidSdkRoot"] as String
 

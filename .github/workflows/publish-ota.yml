@@ -69,7 +69,7 @@ jobs:
         with: { packages: "platforms;android-36 build-tools;36.0.0" }
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
-        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test
+        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test :engine-adapter:test
       - name: Fetch existing channel bundles
         run: |
           mkdir -p prev out
