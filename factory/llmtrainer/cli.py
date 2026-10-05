@@ -89,6 +89,23 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--context", type=int, default=2048)
     s.add_argument("--epochs", type=int, default=1)
 
+    s = sub.add_parser("catalog", help="model catalog and acquisition planning (never downloads automatically)")
+    csub = s.add_subparsers(dest="catalog_cmd", required=True)
+    c = csub.add_parser("list", help="list catalog models with license verification state")
+    c.add_argument("--registry")
+    c.add_argument("--json", action="store_true")
+    c = csub.add_parser("show", help="show one catalog entry (id, repo id or unique substring)")
+    c.add_argument("model")
+    c.add_argument("--registry")
+    c = csub.add_parser("plan-acquire", help="plan a model download; transfers nothing")
+    c.add_argument("model")
+    c.add_argument("--variant")
+    c.add_argument("--registry")
+    c.add_argument("--commercial", action="store_true")
+    c.add_argument("--redistribute", action="store_true")
+    c.add_argument("--confirm-download", action="store_true",
+                   help="authorize the download (needs a VERIFIED license for the intended use); this command still transfers nothing")
+
     s = sub.add_parser("export-schemas", help="write JSON Schemas")
     s.add_argument("out_dir")
     from .specialize import cli_ext
@@ -163,8 +180,41 @@ def _dispatch(a) -> int:
         from .specialize import cli_ext
 
         return cli_ext.dispatch(a)
+    elif a.cmd == "catalog":
+        return _catalog(a)
     elif a.cmd == "export-schemas":
         _print([str(p) for p in schema_export.write_all(a.out_dir)])
+    return 0
+
+
+def _catalog(a) -> int:
+    from . import catalog as cat
+
+    reg = cat.load_registry(a.registry)
+    if a.catalog_cmd == "list":
+        rows = cat.catalog_rows(reg)
+        if a.json:
+            _print(rows)
+        else:
+            for r in rows:
+                print(f"{r['license_state']:<10} {r['evidence_level']:<24} android={r['android']:<10} {r['id']}  [{r['parameter_count']}]")
+        return 0
+    entry = cat.resolve_model(reg, a.model)
+    if a.catalog_cmd == "show":
+        _print(cat.catalog_entry(entry))
+        return 0
+    plan = cat.plan_acquire(entry, a.variant, RequestedUse(commercial=a.commercial, redistribute=a.redistribute))
+    out = plan.as_dict()
+    out["download_authorized"] = False
+    if a.confirm_download:
+        try:
+            cat.authorize_download(plan, True)
+            out["download_authorized"] = True
+            out["messages"] = out["messages"] + ["authorized; this command transfers nothing - run the download as a separate explicit step"]
+        except cat.AcquisitionRefused as e:
+            _print(out | {"refused": e.why})
+            return 1
+    _print(out)
     return 0
 
 
