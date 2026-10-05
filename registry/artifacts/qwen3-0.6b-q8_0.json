@@ -53,7 +53,7 @@
       "block-quantized GGUF weights cannot be trained in place; the on-device trainer works on full-precision weights (F32 compute)"
     ],
     "model_class_if_full_precision": "local_partial",
-    "training_source_artifact_id": null,
+    "training_source_artifact_id": "qwen3-0.6b-f16",
     "assumptions": "F32-only trainer; docs/v2/TRAINING_FEASIBILITY.md not yet available"
   },
   "license": {

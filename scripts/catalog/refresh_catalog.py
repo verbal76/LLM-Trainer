@@ -434,12 +434,19 @@ def _runtime_compat(arch: str | None, support: dict) -> dict:
     return out
 
 
-def _sibling_full_precision(repo_cfg: dict, f: dict) -> str | None:
+def _sibling_full_precision(repo_cfg: dict, f: dict, sources: dict | None = None) -> str | None:
+    """A quantized file's trainable twin: a full-precision file of the same base model (same repo first, then any repo
+    of the catalog that mirrors the same base model, e.g. when the official GGUF repo publishes only quantizations)."""
     if full_precision(f["precision"]):
         return None
     for g in repo_cfg["files"]:
         if full_precision(g["precision"]):
             return g["id"]
+    for other in (sources or {}).get("repos", []):
+        if other is not repo_cfg and other.get("base_repo") == repo_cfg.get("base_repo"):
+            for g in other["files"]:
+                if full_precision(g["precision"]):
+                    return g["id"]
     return None
 
 
@@ -467,7 +474,7 @@ def scaffold_artifact(repo_cfg: dict, f: dict, sources: dict) -> dict:
         "chat_template_present": None,
         "chat_template_sha256": None,
         "runtime_compat": _runtime_compat(None, sources.get("runtime_support", {})),
-        "training": training_block(f["precision"], repo_cfg["params_b_nominal"], _sibling_full_precision(repo_cfg, f)),
+        "training": training_block(f["precision"], repo_cfg["params_b_nominal"], _sibling_full_precision(repo_cfg, f, sources)),
         "license": {
             "state": "UNVERIFIED", "expected_spdx": repo_cfg["expected_license"], "spdx_id": None,
             "reasons": ["unrefreshed: the catalog-refresh CI job has not yet read the license text or the model card"],
@@ -495,7 +502,7 @@ def build_artifact(repo_cfg: dict, f: dict, listing: dict, file_name: str, heade
     doc["architecture"]["name"] = header["architecture"]
     doc["runtime_compat"] = _runtime_compat(header["architecture"], sources.get("runtime_support", {}))
     params_b = header["parameter_count"] / 1e9
-    doc["training"] = training_block(f["precision"], params_b, _sibling_full_precision(repo_cfg, f))
+    doc["training"] = training_block(f["precision"], params_b, _sibling_full_precision(repo_cfg, f, sources))
     doc["license"] = {"state": lic["state"], "expected_spdx": repo_cfg["expected_license"], "spdx_id": lic["spdx_id"], "reasons": lic["reasons"], "evidence": lic["evidence"]}
     doc["notes"] = []
     return doc
