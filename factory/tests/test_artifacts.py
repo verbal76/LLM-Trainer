@@ -56,10 +56,13 @@ def test_every_committed_artifact_converts_to_a_profiler_spec_and_is_classified_
     device = g.flagship12()
     specs = [a.to_spec() for a in committed()]
     rep = dv.choose_models(device, specs)
-    assert all(not c.can_download for c in rep.capabilities)
-    assert all(ch.tier in ("preview", "none") for ch in rep.choices)
-    for s, c in zip(specs, rep.capabilities):
-        assert "not_downloadable" in c.reasons and c.confidence_infer == "low"
+    arts = committed()
+    for a, c in zip(arts, rep.capabilities):
+        assert c.confidence_infer == "low"             # estimates are never "recommended" without a measurement
+        if a.refresh_state != "refreshed":             # only a CI-refreshed (pinned, hashed) file may be offered for download
+            assert not c.can_download and "not_downloadable" in c.reasons, a.artifact_id
+    if all(a.refresh_state != "refreshed" for a in arts):
+        assert all(ch.tier in ("preview", "none") for ch in rep.choices)
 
 
 def test_class_rule_is_identical_in_the_ci_script_and_the_profiler():
@@ -122,8 +125,12 @@ def test_tampering_is_rejected(refreshed_dir):
     x = copy.deepcopy(d); x["unknown_field"] = 1; bad(x)
 
 
-def test_unrefreshed_artifacts_may_not_carry_guessed_values():
-    d = json.loads((REPO_ROOT / "registry/artifacts/qwen3-4b-q4_k_m.json").read_text())
+def test_unrefreshed_artifacts_may_not_carry_guessed_values(tmp_path):
+    # the shipped files may already be CI-refreshed: generate the UNREFRESHED placeholder form with the script's own scaffold
+    import subprocess, sys
+    subprocess.run([sys.executable, str(REPO_ROOT / "scripts/catalog/refresh_catalog.py"), "--scaffold", "--out", str(tmp_path)],
+                   check=True, capture_output=True, cwd=REPO_ROOT)
+    d = json.loads((tmp_path / "qwen3-4b-q4_k_m.json").read_text())
     DownloadableArtifact.model_validate(d)
     for path, val in ((("sha256",), "sha256:" + "ab" * 32), (("size_bytes",), 2_500_000_000), (("source", "revision"), "0" * 40),
                       (("source", "download_url"), "https://huggingface.co/x/resolve/main/f.gguf"), (("parameter_count",), 4_000_000_000)):
