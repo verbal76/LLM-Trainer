@@ -10,6 +10,7 @@ capability, and says why (diagnostics: `engineStatus`, `nativeVersion`).
 | `native/engine` | C++ engine behind the stable C API `hag_engine.h` (owned by the engine implementer) |
 | `runtime/` (`com.hotatticgames.hag.runtime`) | Generic, reusable Android library: CMake build of `native/engine` + llama.cpp, JNI, Kotlin binding (`HagRuntime`, `HagEngine`). No LLM-Trainer code. |
 | `host-api/` | Level 2 adds `EngineApi`, `HostServices.engine/nativeVersion/buildSha/engineUnavailableReason`, capabilities `inference.gguf.v1`, `training.patch.v1` |
+| `engine-adapter/` | Pure-JVM module dexed into the OTA bundle: `InferenceBackend`/`TrainingBackend` (studio-api seams) over the host `EngineApi`; unit-tested with a fake engine. See `docs/v2/UI_AND_ADAPTER.md` |
 | `app/` | `NativeEngine` (guarded bring-up), `EngineAdapter` (runtime -> `EngineApi`), capability gating in `HostRuntime` |
 
 ## Two native libraries, one gate

@@ -64,14 +64,19 @@ internal class Ui(val ctx: Context) {
     fun button(s: String, tagName: String, primary: Boolean = true, onClick: () -> Unit): Button {
         val b = Button(ctx)
         b.text = s; b.isAllCaps = false; b.minimumHeight = px(52)
-        b.setTextColor(if (primary) Color.BLACK else ink)
-        b.background = GradientDrawable().apply {
-            setColor(if (primary) accent else Color.parseColor("#2A2A36")); cornerRadius = px(10).toFloat()
-        }
+        setPrimary(b, primary)
         b.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) }
         b.tag = tagName
         b.setOnClickListener { onClick() }
         return b
+    }
+
+    /** (Re)style a button as primary (accent) or secondary. */
+    fun setPrimary(b: Button, primary: Boolean) {
+        b.setTextColor(if (primary) Color.BLACK else ink)
+        b.background = GradientDrawable().apply {
+            setColor(if (primary) accent else Color.parseColor("#2A2A36")); cornerRadius = px(10).toFloat()
+        }
     }
 
     fun edit(hint: String, tagName: String, number: Boolean = false, decimal: Boolean = false, multiline: Boolean = false): EditText {

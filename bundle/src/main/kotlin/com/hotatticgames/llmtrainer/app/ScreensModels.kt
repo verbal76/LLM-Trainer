@@ -68,7 +68,8 @@ internal fun modelsScreen(c: Ctl, pid: String?, col: LinearLayout) {
         }) { d -> if (d == null) dyn.addView(u.tv("This Studio implementation has no model manager.", 14f, u.bad, topDp = 12)) else fill(c, pid, d, dyn) }
     }
 
-    fun refreshOps() {
+    var pollGen = 0
+    fun refreshOps(chain: Int = ++pollGen) {
         val ep = c.epochNow()
         c.bg({ c.studio.operations() }) { ops: List<Operation> ->
             val active = ops.filter { !it.isTerminal }
@@ -79,7 +80,7 @@ internal fun modelsScreen(c: Ctl, pid: String?, col: LinearLayout) {
             if (active.isNotEmpty()) opsBox.addView(u.section("OPERATIONS"))
             for (op in active) opsBox.addView(opCard(c, op) { refreshOps() })
             if (finished) load()                                   // a download/import ended: installed list and cards changed
-            if (active.any { it.state == OperationState.RUNNING || it.state == OperationState.QUEUED }) c.postDelayed(1500, ep) { refreshOps() }
+            if (active.any { it.state == OperationState.RUNNING || it.state == OperationState.QUEUED }) c.postDelayed(1500, ep) { if (chain == pollGen) refreshOps(chain) }
         }
     }
 

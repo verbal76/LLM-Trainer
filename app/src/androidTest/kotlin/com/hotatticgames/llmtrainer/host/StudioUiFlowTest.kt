@@ -142,6 +142,12 @@ class StudioUiFlowTest {
         return s
     }
 
+    private fun waitTextOf(tag: String, what: String, ok: (String) -> Boolean) = waitUntil("text of '$tag' $what") {
+        var t: String? = null
+        instr.runOnMainSync { t = (walk(decor()) { it.tag == tag } as? TextView)?.text?.toString() }
+        t?.takeIf(ok)
+    }
+
     private fun waitText(fragment: String) = waitUntil("text containing '$fragment'") { if (visibleText().contains(fragment, ignoreCase = true)) true else null }
 
     private fun click(tag: String) {
@@ -189,9 +195,28 @@ class StudioUiFlowTest {
         // First run explanation (fresh install) -> dashboard.
         waitUntil("first-run or dashboard") { findTag("screen:FIRSTRUN") ?: findTag("screen:DASHBOARD") }
         if (findTag("screen:FIRSTRUN") != null) {
-            waitText("does not train")
+            waitText("NOT training")
             click("btn:firstrun-ok")
         }
+        waitScreen("DASHBOARD")
+
+        // Model manager: never downloads by itself, shows storage and the owner-facing picks (real catalog; files may be unrefreshed previews).
+        click("btn:models")
+        waitScreen("MODELS")
+        waitTag("models-storage")
+        waitText("Nothing downloads automatically")
+        waitTagPrefix("pick:")
+        waitTag("models-import")
+        click("btn:back")
+        waitScreen("DASHBOARD")
+
+        // About: the five identities in one block, plus an honest phone summary.
+        click("btn:about-phone")
+        waitScreen("ABOUT")
+        waitTag("identity-block")
+        waitTextOf("identity-text", "identity lines") { it.contains("Native version:") && it.contains("Application version:") && it.contains("Source:") }
+        waitTag("phone-summary")
+        click("btn:back")
         waitScreen("DASHBOARD")
 
         // Updates & diagnostics: diagnostics are read lazily after attach.
@@ -215,6 +240,19 @@ class StudioUiFlowTest {
         click("btn:create-submit")
         waitScreen("HUB")
         waitText("Test Mechanic")
+
+        // Phone-first screens are honest before any model is installed: chat is blocked with a reason, training shows its gates.
+        waitTag("hub-phone")
+        click("btn:hub-chat")
+        waitScreen("CHAT")
+        waitTag("blocked-card")
+        click("btn:back"); waitScreen("HUB")
+        click("btn:hub-train")
+        waitScreen("TRAIN_LOCAL")
+        waitTag("train-conditions")
+        waitTagPrefix("option:")
+        waitText("NOT training")
+        click("btn:back"); waitScreen("HUB")
 
         // Device & recommendations -> catalog -> model -> select base model (real registry: all UNVERIFIED or DISALLOWED).
         click("btn:hub-models")
@@ -286,7 +324,8 @@ class StudioUiFlowTest {
         // Method screen: honest options. The desktop training method is unavailable while the license is UNVERIFIED.
         click("btn:stage:METHOD")
         waitScreen("METHOD")
-        waitText("does not train models")
+        waitTag("method-warning")
+        waitText("NOT training")
         waitTag("method:adapter-training-desktop")
         waitText("NOT TRAINING")
         waitText("NOT AVAILABLE")

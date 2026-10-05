@@ -61,6 +61,8 @@ internal fun chatScreen(c: Ctl, pid: String?, col: LinearLayout) {
     var input: EditText? = null
     var sendBtn: View? = null
     var stopBtn: View? = null
+    var baseBtn: android.widget.Button? = null
+    var specBtn: android.widget.Button? = null
 
     fun bubble(rec: ChatMessageRecord, info: ChatSessionInfo?): LinearLayout {
         val card = u.card(8)
@@ -95,6 +97,8 @@ internal fun chatScreen(c: Ctl, pid: String?, col: LinearLayout) {
 
     fun startChat(forceNew: Boolean) {
         val s = st ?: return
+        baseBtn?.let { u.setPrimary(it, target == ChatTarget.BASE) }
+        specBtn?.let { u.setPrimary(it, target == ChatTarget.SPECIALIST) }
         val tg = target
         val uc = useCtx
         c.bg({
@@ -152,10 +156,13 @@ internal fun chatScreen(c: Ctl, pid: String?, col: LinearLayout) {
         if (!ms.canChatBase.ok) { blockedCard(c, "Chat is not available yet", ms.canChatBase.reason, pid, top); return }
 
         val tb = u.row()
-        tb.addView(u.button("Base model", "btn:chat-target-base", target == ChatTarget.BASE) { target = ChatTarget.BASE; startChat(false) }, LinearLayout.LayoutParams(0, -2, 1f))
-        tb.addView(u.button("Specialist", "btn:chat-target-specialist", target == ChatTarget.SPECIALIST) {
+        val bb = u.button("Base model", "btn:chat-target-base", target == ChatTarget.BASE) { target = ChatTarget.BASE; startChat(false) }
+        val sb = u.button("Specialist", "btn:chat-target-specialist", target == ChatTarget.SPECIALIST) {
             if (!ms.canChatSpecialist.ok) c.notice(ms.canChatSpecialist.reason ?: "No specialist available.") else { target = ChatTarget.SPECIALIST; startChat(false) }
-        }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        baseBtn = bb; specBtn = sb
+        tb.addView(bb, LinearLayout.LayoutParams(0, -2, 1f))
+        tb.addView(sb, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(tb)
         if (!ms.canChatSpecialist.ok) top.addView(u.tv("Specialist chat: ${ms.canChatSpecialist.reason}", 11f, u.muted))
         else init.specialists.firstOrNull { it.selected }?.let { sp ->

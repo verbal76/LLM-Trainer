@@ -66,14 +66,16 @@ internal fun trainLocalScreen(c: Ctl, pid: String?, col: LinearLayout) {
 
     var selected: TrainingMethodKind? = null
 
-    fun refreshRun() {
+    var pollGen = 0
+    // One poll chain at a time: an external call (button, resume) starts a new chain and the older one stops at its next check.
+    fun refreshRun(chain: Int = ++pollGen) {
         val ep = c.epochNow()
         c.bg({ c.studio.trainingRuns(project) }) { runs: List<TrainingRun> ->
             runBox.removeAllViews()
             val r = runs.maxByOrNull { it.createdAt }
             if (r != null) {
                 runBox.addView(runCard(c, project, r, runs.size) { c.postDelayed(300, ep) { refreshRun() } })
-                if (r.state == TrainingRunState.RUNNING || r.state == TrainingRunState.QUEUED) c.postDelayed(2000, ep) { refreshRun() }
+                if (r.state == TrainingRunState.RUNNING || r.state == TrainingRunState.QUEUED) c.postDelayed(2000, ep) { if (chain == pollGen) refreshRun(chain) }
             }
         }
     }
@@ -302,7 +304,8 @@ internal fun localEvalSection(c: Ctl, project: ProjectId, box: LinearLayout) {
         }
     }
 
-    fun load() {
+    var pollGen = 0
+    fun load(chain: Int = ++pollGen) {
         c.bg({ EvalData(c.studio.engineStatus(), c.studio.specialists(project), c.studio.localEvaluations(project)) }) { d ->
             box.removeAllViews()
             val hc = u.card(8)
@@ -334,7 +337,7 @@ internal fun localEvalSection(c: Ctl, project: ProjectId, box: LinearLayout) {
             }
             box.addView(resultBox)
             showLatest(d.evals)
-            if (d.evals.any { it.state == LocalEvalState.RUNNING || it.state == LocalEvalState.QUEUED }) c.postDelayed(2000, ep) { load() }
+            if (d.evals.any { it.state == LocalEvalState.RUNNING || it.state == LocalEvalState.QUEUED }) c.postDelayed(2000, ep) { if (chain == pollGen) load(chain) }
         }
     }
     load()

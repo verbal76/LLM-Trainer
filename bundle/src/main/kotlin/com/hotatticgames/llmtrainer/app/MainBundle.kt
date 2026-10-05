@@ -10,8 +10,10 @@ import org.json.JSONObject
 /**
  * The OTA-updatable "LLM Trainer product experience": the owner workflow (specialist projects, sources, dataset
  * review, base-model license evidence, method, training-job / reference packages, evaluation import, specialist
- * package, updates). Everything here uses only host API level 1 (core.v1, device.snapshot.v1, update.check.v1)
- * plus platform APIs reached through the host Activity. See docs/studio/PRODUCT.md "OTA boundary".
+ * package, updates) and, on native v2, the phone-first screens (model manager, chat, on-device training, local
+ * evaluation, A/B, specialists, About). It uses host API level 2 only through guarded reads (`host.engine`, `nativeVersion`):
+ * on a host without a working engine the same bundle runs and reports "engine unavailable" with the host's reason.
+ * Platform APIs are reached through the host Activity. See docs/studio/PRODUCT.md "OTA boundary" and docs/v2/UI_AND_ADAPTER.md.
  */
 class MainBundle : BundleEntry {
     override fun create(host: HostServices): BundleApp {
