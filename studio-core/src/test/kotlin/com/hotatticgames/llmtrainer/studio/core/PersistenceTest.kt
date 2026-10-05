@@ -155,6 +155,41 @@ class PersistenceTest {
         assertEquals(3, reborn.listSources(p).ok().size)
     }
 
+    @Test fun crashBetweenSourceRemovalAndDatasetPurgeIsRepairedOnNextStart() {
+        val (rig, p, s) = populated()
+        val victim = s.listSources(p).ok()[1].sourceId
+        File(rig.dir, "projects/${p.value}/sources/$victim").deleteRecursively()          // the process died right after deleting the source
+        val reborn = rig.open()
+        assertTrue(reborn.startupProblems.any { it.contains("sources changed after the dataset was built") && it.contains("purged") }, reborn.startupProblems.toString())
+        assertEquals(DatasetStatus.STALE, reborn.datasetPreview(p).ok()!!.status)
+        assertTrue(reborn.reviewItems(p, ReviewFilter(), 0, 10_000).ok().items.none { it.sourceId == victim })
+        assertEquals(DatasetStatus.STALE, rig.open().datasetPreview(p).ok()!!.status)           // and the repair was persisted
+        assertTrue(File(rig.dir, "projects/${p.value}/dataset").walkTopDown().filter { it.isFile }.none { it.readText().contains("\"source_id\":\"$victim\"") })
+    }
+
+    @Test fun crashBetweenRightsChangeAndStaleMarkIsRepairedOnNextStart() {
+        val (rig, p, s) = populated()
+        val sid = s.listSources(p).ok()[0].sourceId
+        val f = File(rig.dir, "projects/${p.value}/sources/$sid/source.json")
+        f.writeText(f.readText().replace("OWNER_AUTHORED", "REFERENCE_ONLY"))                  // rights changed on disk, dataset not yet marked
+        val reborn = rig.open()
+        assertEquals(DatasetStatus.STALE, reborn.datasetPreview(p).ok()!!.status)
+        assertEquals(RightsStatus.REFERENCE_ONLY, reborn.listSources(p).ok().first { it.sourceId == sid }.provenance.rights)
+        assertEquals("DATASET_STALE", (reborn.approveDataset(p).err() as StudioError.Blocked).code)
+    }
+
+    @Test fun finishedOperationsAreForgottenAfterAMonth() {
+        val rig = TK.rig(); val s = rig.open()
+        val ops = File(rig.dir, "workspace/operations").also { it.mkdirs() }
+        val old = rig.clock.now - 40L * 24 * 3600 * 1000
+        File(ops, "op-old.json").writeText("""{"schema":1,"id":"op-old","kind":"DOWNLOAD","state":"SUCCEEDED","subject":"v","done":1,"total":1,"message":"","resumable":false,"created_at":$old,"updated_at":$old,"variant_id":"v#a","file_name":"f.gguf"}""")
+        File(ops, "op-new.json").writeText("""{"schema":1,"id":"op-new","kind":"DOWNLOAD","state":"FAILED","subject":"v","done":1,"total":9,"message":"x","resumable":true,"created_at":$old,"updated_at":$old,"variant_id":"v#a","file_name":"f.gguf"}""")
+        val reborn = rig.open()
+        assertEquals(listOf("op-new"), reborn.operations().map { it.id })               // a resumable failure is never auto-forgotten
+        assertFalse(File(ops, "op-old.json").exists())
+        assertNotNull(s)
+    }
+
     @Test fun deletedProjectsStayDeletedAndOthersAreUntouched() {
         val rig = TK.rig(); val s = rig.open()
         val a = TK.readyProject(s, 4, name = "A"); val b = TK.readyProject(s, 4, name = "B")

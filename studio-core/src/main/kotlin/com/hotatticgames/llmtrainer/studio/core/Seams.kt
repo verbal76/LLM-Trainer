@@ -38,7 +38,7 @@ object RandomIds : IdSource {
 /** Runs background work (downloads/imports). The default is one daemon thread; tests run tasks inline or manually. */
 interface TaskRunner { fun submit(task: Runnable) }
 class ThreadTaskRunner : TaskRunner {
-    private val ex = Executors.newSingleThreadExecutor { r -> Thread(r, "studio-core-worker").also { it.isDaemon = true } }
+    private val ex = Executors.newFixedThreadPool(2) { r -> Thread(r, "studio-core-worker").also { it.isDaemon = true } }
     override fun submit(task: Runnable) { ex.execute(task) }
 }
 object InlineTaskRunner : TaskRunner { override fun submit(task: Runnable) = task.run() }

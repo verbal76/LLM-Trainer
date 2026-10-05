@@ -100,7 +100,7 @@ class StudioCore(
                 p.commercial = o.obj("intended_use")?.bool("commercial") ?: false; p.redistribute = o.obj("intended_use")?.bool("redistribute_model") ?: false
                 p.jobIds.addAll(o.strList("job_ids"))
                 p.sources = SourceStore(File(d, "sources"), problems)
-                p.dataset = DatasetStore(File(d, "dataset"), problems).takeIf { it.exists() }?.load()
+                p.dataset = DatasetStore(File(d, "dataset"), problems).takeIf { it.exists() }?.load()?.let { reconcile(p, it) }
                 p.report = readReport(p)
                 p.evaluation = readEvaluation(p)
                 projects[p.id] = p
@@ -108,6 +108,24 @@ class StudioCore(
                 problems.add("project ${d.name} could not be loaded (${e.javaClass.simpleName}: ${e.message}); data left in place")
             }
         }
+    }
+
+    /**
+     * Crash safety between "sources changed" and "dataset marked stale": the dataset records which sources (and rights) it was built from.
+     * Any difference at load means the dataset no longer describes the sources, so it becomes STALE and rows of vanished sources are purged.
+     */
+    private fun reconcile(p: PState, ds: DatasetState): DatasetState {
+        val now = p.sources.all().associateBy { it.sourceId }
+        val snap = ds.meta.sourceSnapshot.associateBy { it["id"] as? String }
+        val removed = snap.keys.filterNotNull().filter { it !in now }
+        val changed = now.values.any { d -> val e = snap[d.sourceId]; e == null || e["rights"] != d.rights.name || e["sha256"] != d.sha256 }
+        if (removed.isEmpty() && !changed) return ds
+        if (removed.isEmpty() && ds.meta.status == DatasetStatus.STALE) return ds
+        problems.add("project ${p.id}: sources changed after the dataset was built (an interrupted operation?); the dataset was marked STALE" + if (removed.isNotEmpty()) " and rows of ${removed.size} removed source(s) were purged" else "")
+        val gone = removed.toSet()
+        val meta = DatasetMeta(ds.meta.version, ds.meta.options, ds.meta.builtAt, null, DatasetStatus.STALE, ds.meta.groupBy, ds.meta.assignment, ds.meta.notes, ds.meta.splitsAvailable, ds.meta.sourceSnapshot.filter { it["id"] !in gone })
+        val out = DatasetState(meta, ds.chunks.filter { it.sourceId !in gone }, ds.synth.filter { it.sourceId !in gone }, java.util.concurrent.ConcurrentHashMap(ds.decisions.filterKeys { k -> gone.none { k.startsWith("$it/") } }))
+        return try { p.dataset = out; persistDatasetFull(p); out } catch (e: IOException) { problems.add("project ${p.id}: could not persist the reconciled dataset: ${e.message}"); out }
     }
 
     private fun saveProject(p: PState) {
@@ -344,7 +362,7 @@ class StudioCore(
 
     override fun ingest(projectId: ProjectId, inputs: List<SourceInput>, rights: RightsStatus, onProgress: (Progress) -> Unit) = withP(projectId) { p ->
         val before = p.sources.all().size
-        val report = ingestSvc.ingest(projectId, p.sources, inputs, rights, onProgress) { partial -> try { saveReport(p, partial, finished = false) } catch (_: IOException) { } }
+        val report = ingestSvc.ingest(projectId, p.sources, inputs, rights, onProgress) { partial -> if (partial.items.size <= 100 || partial.items.size % 20 == 0) try { saveReport(p, partial, finished = false) } catch (_: IOException) { } }
         p.report = report
         saveReport(p, report)
         if (p.sources.all().size != before) { markStale(p); resetExports(p, true) }
@@ -460,7 +478,7 @@ class StudioCore(
             ds.decisions[id] = Decision(included, c?.chunk?.sha256 ?: "")
         }
         ds.meta.status = DatasetStatus.NEEDS_REVIEW; ds.meta.approvedAt = null
-        store(p).saveReview(ds); store(p).saveMeta(ds)
+        store(p).saveMeta(ds); store(p).saveReview(ds)      // status first: a crash in between leaves NEEDS_REVIEW, never a stale approval
         p.trainingExported = false; p.heldOutExported = false; p.referenceExported = false; p.specialistExported = false
         saveProject(p)
         ok(previewOf(p)!!)

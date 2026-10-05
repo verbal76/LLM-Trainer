@@ -267,6 +267,18 @@ class DatasetTest {
         assertTrue(ticks.all { it.unit == "sources" })
     }
 
+    @Test fun excludingAWholeSplitBlocksExportInsteadOfShippingAnEmptyOne() {
+        val rig = TK.rig(); val s = rig.open()
+        val p = TK.readyProject(s, 4)
+        val val_ = items(s, p).filter { it.role == ChunkRole.VALIDATION }
+        s.setIncluded(p, val_.map { it.id }, false).ok()
+        s.approveDataset(p).ok(); TK.verifyLicense(rig, s); s.selectBaseModel(p, TK.MODEL, null).ok(); s.selectMethod(p, MethodIds.ADAPTER_DESKTOP).ok()
+        val e = s.exportTrainingJobPackage(p, ByteArrayOutputStream()).err() as StudioError.Blocked
+        assertEquals("EMPTY_SPLIT", e.code); assertTrue(e.message.contains("validation"))
+        s.setIncluded(p, val_.map { it.id }, true).ok(); s.approveDataset(p).ok()
+        s.exportTrainingJobPackage(p, ByteArrayOutputStream()).ok()
+    }
+
     @Test fun heldOutSetComesOnlyFromHeldOutChunks() {
         val rig = TK.rig(); val s = rig.open()
         val p = TK.readyProject(s, 8)

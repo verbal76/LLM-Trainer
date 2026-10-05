@@ -56,6 +56,7 @@ class AcquisitionService(
 
     private fun load() {
         val list = opsDir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: return
+        pruneOld(list)
         for (f in list.sortedBy { it.name }) {
             val o = Fs.readJson(f) { problems.add(it) } ?: continue
             try {
@@ -82,6 +83,17 @@ class AcquisitionService(
                 if (dirty) persist(rec)
             } catch (e: Exception) { problems.add("operation file ${f.name} is unreadable and was ignored") }
         }
+    }
+
+    /** Finished operations older than 30 days (or beyond the newest 100) are forgotten so the list stays useful. */
+    private fun pruneOld(files: Array<File>) {
+        val finished = files.mapNotNull { f ->
+            val o = try { org.json.JSONObject(f.readText()) } catch (e: Exception) { return@mapNotNull null }
+            val st = o.str("state") ?: return@mapNotNull null
+            if (st == "SUCCEEDED" || st == "CANCELLED" || (st == "FAILED" && o.bool("resumable") != true)) Pair(f, o.lng("updated_at") ?: 0L) else null
+        }.sortedByDescending { it.second }
+        val cutoff = clock.nowMs() - 30L * 24 * 3600 * 1000
+        finished.forEachIndexed { i, (f, at) -> if (i >= 100 || at < cutoff) { f.delete(); File(f.path + ".bak").delete() } }
     }
 
     private fun errFrom(o: org.json.JSONObject): StudioError = when (o.str("code")) {
