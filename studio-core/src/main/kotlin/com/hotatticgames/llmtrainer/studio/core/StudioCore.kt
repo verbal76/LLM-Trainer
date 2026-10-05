@@ -317,6 +317,13 @@ class StudioCore(
     override fun deviceProfile(): DeviceProfile = catalogSvc.deviceProfile()
     override fun recommendations(): Recommendations = catalogSvc.recommendations()
     override fun catalog(): List<CatalogModel> = catalogSvc.catalog()
+    /**
+     * Host/owner extension (not on [Studio]): register a direct-download variant for a catalog model. The shipped registry knows only
+     * repository pages, so without this (or a model-file import) nothing is downloadable. Returns null on success, else the reason.
+     */
+    fun addVariantOverride(modelId: String, variantId: String, format: String, quantization: String?, url: String, sizeBytes: Long?, sha256: String?): String? =
+        catalogSvc.addVariantOverride(modelId, variantId, format, quantization, url, sizeBytes, sha256)
+
     override fun model(modelId: String): StudioResult<CatalogModel> = entryOf(modelId)?.let { ok(catalogSvc.modelView(it)) } ?: err(StudioError.NotFound("model $modelId"))
     override fun fetchLicenseText(modelId: String) = entryOf(modelId)?.let { licenses.fetchText(it) } ?: err(StudioError.NotFound("model $modelId"))
     override fun importLicenseText(modelId: String, fileName: String, input: InputStream) = entryOf(modelId)?.let { licenses.importText(it, fileName, input) } ?: err(StudioError.NotFound("model $modelId"))

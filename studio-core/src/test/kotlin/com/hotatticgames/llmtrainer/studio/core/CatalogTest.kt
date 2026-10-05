@@ -164,6 +164,19 @@ class CatalogTest {
         assertEquals(2, rig.open().model(TK.MODEL).ok().variants.size)           // merged with the registry's own variant
     }
 
+    @Test fun addVariantOverrideValidatesAndMerges() {
+        val rig = TK.rig(); val s = rig.open()
+        assertEquals("only HTTPS URLs are accepted", s.addVariantOverride(TK.MODEL, "g", "GGUF", "Q4_K_M", "http://x/y.gguf", 10, null))
+        assertEquals("unknown model nope", s.addVariantOverride("nope", "g", "GGUF", null, "https://x/y.gguf", 10, null))
+        assertTrue(s.addVariantOverride(TK.MODEL, "a#b", "GGUF", null, "https://x/y.gguf", 10, null)!!.contains("must not contain"))
+        assertTrue(s.addVariantOverride(TK.MODEL, "g", "GGUF", null, "https://x/y.gguf", 10, "zz")!!.contains("64 hex"))
+        assertNull(s.addVariantOverride(TK.MODEL, "g", "GGUF", "Q4_K_M", "https://x/y.gguf", 4096, "sha256:" + "ab".repeat(32)))
+        assertNull(s.addVariantOverride(TK.MODEL, "g", "GGUF", "Q4_K_M", "https://x/z.gguf", 8192, null))        // replaces, not duplicates
+        val v = s.model(TK.MODEL).ok().variants.filter { it.id.endsWith("#g") }
+        assertEquals(1, v.size); assertEquals(8192L, v[0].sizeBytes); assertEquals("https://x/z.gguf", v[0].downloadUrl)
+        assertEquals(1, rig.open().model(TK.MODEL).ok().variants.count { it.id.endsWith("#g") })              // persisted
+    }
+
     @Test fun deviceProfileMirrorsTheSnapshot() {
         val d = core().deviceProfile()
         assertEquals("Test Phone", d.deviceName); assertEquals(34, d.androidApi); assertEquals("arm64-v8a", d.abi)

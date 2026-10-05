@@ -77,6 +77,26 @@ class CatalogService(
         return base.values.toList()
     }
 
+    /**
+     * Adds or replaces a downloadable variant for a registry model in the workspace (the shipped registry records repository pages,
+     * not file URLs/sizes/hashes). Evidence is labelled "workspace override" unless [evidence] says otherwise.
+     */
+    @Synchronized fun addVariantOverride(modelId: String, variantId: String, format: String, quantization: String?, url: String, sizeBytes: Long?, sha256: String?, evidence: String = "workspace override"): String? {
+        if (byId[modelId] == null) return "unknown model $modelId"
+        if (!url.startsWith("https://")) return "only HTTPS URLs are accepted"
+        if (variantId.isBlank() || variantId.contains('#')) return "variant id must be non-empty and must not contain '#'"
+        if (sha256 != null && !Regex("^(sha256:)?[0-9a-fA-F]{64}$").matches(sha256)) return "sha256 must be 64 hex digits"
+        val cur = Fs.readJson(overridesFile) { onProblem(it) }
+        val all = LinkedHashMap<String, MutableList<Map<String, Any?>>>()
+        cur?.obj("variants")?.let { vs -> for (k in vs.keyList()) all[k] = vs.arr(k)!!.objs().map { o -> o.keyList().associateWith { o.opt(it) } }.toMutableList() }
+        val list = all.getOrPut(modelId) { ArrayList() }
+        list.removeAll { it["variant_id"] == variantId }
+        list.add(linkedMapOf("variant_id" to variantId, "format" to format, "quantization" to quantization, "source_url" to url, "size_bytes" to sizeBytes,
+            "sha256" to sha256?.let(Hashing::bare), "size_evidence" to evidence))
+        Fs.writeJson(overridesFile, linkedMapOf("schema" to 1, "variants" to all))
+        return null
+    }
+
     fun findVariant(variantId: String): Pair<RegEntry, VariantRec>? {
         val modelId = variantId.substringBefore('#', "")
         val e = byId[modelId] ?: return null
