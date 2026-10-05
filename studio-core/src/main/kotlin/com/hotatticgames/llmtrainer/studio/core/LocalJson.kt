@@ -30,14 +30,15 @@ object LJ {
 
     fun settings(s: TrainingSettings): Map<String, Any?> = linkedMapOf("kind" to s.kind.name, "trainable_last_layers" to s.trainableLastLayers, "epochs" to s.epochs,
         "learning_rate" to s.learningRate.toDouble(), "context_tokens" to s.contextTokens, "seed" to s.seed, "train_embeddings" to s.trainEmbeddings,
-        "checkpoint_every_steps" to s.checkpointEverySteps, "max_sequences" to s.maxSequences, "owner_confirms_plugged_in" to s.ownerConfirmsPluggedIn)
+        "checkpoint_every_steps" to s.checkpointEverySteps, "max_sequences" to s.maxSequences, "owner_confirms_plugged_in" to s.ownerConfirmsPluggedIn,
+        "lora_rank" to s.loraRank, "lora_alpha" to s.loraAlpha.toDouble())
     fun settings(o: JSONObject?): TrainingSettings {
         val d = TrainingSettings()
         if (o == null) return d
         return TrainingSettings(enumOf(o.str("kind"), d.kind), o.int("trainable_last_layers") ?: d.trainableLastLayers, o.int("epochs") ?: d.epochs,
             (o.dbl("learning_rate") ?: d.learningRate.toDouble()).toFloat(), o.int("context_tokens") ?: d.contextTokens, o.lng("seed") ?: d.seed,
             o.bool("train_embeddings") ?: d.trainEmbeddings, o.int("checkpoint_every_steps") ?: d.checkpointEverySteps, o.int("max_sequences") ?: d.maxSequences,
-            o.bool("owner_confirms_plugged_in") ?: false)
+            o.bool("owner_confirms_plugged_in") ?: false, o.int("lora_rank") ?: 0, (o.dbl("lora_alpha") ?: 0.0).toFloat())
     }
 
     fun err(e: StudioError?): Map<String, Any?>? = e?.let { linkedMapOf("code" to it.code, "message" to it.message) }

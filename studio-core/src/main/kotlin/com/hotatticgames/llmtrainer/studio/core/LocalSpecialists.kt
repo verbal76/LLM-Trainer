@@ -116,7 +116,7 @@ class SpecialistRegistry(
         }
         return SpecialistInfo(r.id, r.projectId, r.name, r.version, r.createdAt, r.baseModelId, r.baseVariantId, r.baseSha256, r.patchSha256, r.patchSize, r.datasetSha256, r.runId, r.method, r.config,
             r.finalTrainLoss, r.finalValLoss, r.steps, r.examples, r.verified, r.verifyMessage, selected[r.projectId.value] == r.id, r.locallyEvaluated,
-            "Parameters changed on this device by fine-tuning on your approved dataset (${if (r.method == TrainingMethodKind.LOCAL_FULL) "all layers" else "last ${r.config.trainableLastLayers} layers"}). " +
+            "Parameters changed on this device by fine-tuning on your approved dataset (${when (r.method) { TrainingMethodKind.LOCAL_FULL -> "all layers"; TrainingMethodKind.LOCAL_LORA -> "LoRA adapter, rank ${if (r.config.loraRank > 0) r.config.loraRank else DEFAULT_LORA_RANK}"; else -> "last ${r.config.trainableLastLayers} layers" }}). " +
                 "The base model file is untouched; this is a patch on top of base ${r.baseSha256.take(12)}.", stale, reason, r.sources.keys.sorted())
     }
 

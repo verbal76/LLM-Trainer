@@ -76,7 +76,11 @@ data class ChatMessageRecord(
 
 // ===== Local training plan ===============================================================================================
 
-enum class TrainingMethodKind { LOCAL_FULL, LOCAL_PARTIAL, EXTERNAL_COMPUTE, RAG_ONLY, PROMPT_ONLY }
+/**
+ * LOCAL_FULL / LOCAL_PARTIAL tune base weights (the patch REPLACES tensors); LOCAL_LORA trains small rank-r adapters with the base frozen
+ * (the patch is a standard llama.cpp LoRA adapter GGUF) and is the preferred path for quantized bases.
+ */
+enum class TrainingMethodKind { LOCAL_FULL, LOCAL_PARTIAL, LOCAL_LORA, EXTERNAL_COMPUTE, RAG_ONLY, PROMPT_ONLY }
 enum class Risk { LOW, MEDIUM, HIGH, UNKNOWN }
 
 /** Estimates, never measurements (`basis` says what they were derived from). */
@@ -110,6 +114,8 @@ data class TrainingSettings(
     val maxSequences: Int = 2000,
     /** Host does not report charger state: owner asserts the phone is plugged in. */
     val ownerConfirmsPluggedIn: Boolean = false,
+    /** LOCAL_LORA only: adapter rank (0 = default 8) and alpha (0 = 2 x rank). `trainableLastLayers` then selects the layers that get adapters (0 = all). */
+    val loraRank: Int = 0, val loraAlpha: Float = 0f,
 )
 
 data class LocalTrainingPlan(

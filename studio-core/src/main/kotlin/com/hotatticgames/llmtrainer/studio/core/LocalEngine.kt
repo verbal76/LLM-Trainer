@@ -99,7 +99,7 @@ class EngineCore(val inference: InferenceBackend?, val trainer: TrainingBackend?
 
 // ===== what the local services need from the surrounding StudioCore ===============================================
 
-class BaseRef(val modelId: String, val variantId: String?, val name: String, val file: File?, val gate: List<Blocker>, val sha256: String? = null)
+class BaseRef(val modelId: String, val variantId: String?, val name: String, val file: File?, val gate: List<Blocker>, val sha256: String? = null, val quant: String? = null)
 
 class SourceFact(val sha256: String, val trainable: Boolean, val name: String)
 
