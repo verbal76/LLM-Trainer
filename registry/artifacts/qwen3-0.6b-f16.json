@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "artifact_id": "qwen3-0.6b-f16",
+  "refresh_state": "refreshed",
+  "refreshed_at": "2026-10-05T17:43:01Z",
+  "optional": true,
+  "published": false,
+  "family": "Qwen3",
+  "base_repo": "Qwen/Qwen3-0.6B",
+  "source": {
+    "repo": "bartowski/Qwen_Qwen3-0.6B-GGUF",
+    "repo_url": "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF",
+    "file": null,
+    "file_glob": "*f16.gguf",
+    "revision": "60b85c0e3d8fe0f6474f406922a26d12aca4550d",
+    "download_url": null
+  },
+  "format": "gguf",
+  "quantization": "F16",
+  "precision": "f16",
+  "size_bytes": null,
+  "sha256": null,
+  "parameter_count_nominal_b": 0.6,
+  "parameter_count": null,
+  "architecture": {
+    "name": null,
+    "layers": null,
+    "kv_heads": null,
+    "heads": null,
+    "head_dim": null,
+    "embd": null,
+    "ffn": null,
+    "ctx_train": null,
+    "vocab": null
+  },
+  "chat_template_present": null,
+  "chat_template_sha256": null,
+  "runtime_compat": {
+    "llama.cpp": {
+      "architecture": null,
+      "supported": "unverified",
+      "min_build": null
+    },
+    "hag-engine": {
+      "architecture": null,
+      "supported": "unverified",
+      "min_build": null
+    }
+  },
+  "training": {
+    "class": "local_partial",
+    "reasons": [
+      "full tuning needs ~16 bytes/param (too large for a phone); tuning only the last N layers can fit a high-RAM phone"
+    ],
+    "model_class_if_full_precision": "local_partial",
+    "training_source_artifact_id": null,
+    "assumptions": "F32-only trainer; docs/v2/TRAINING_FEASIBILITY.md not yet available"
+  },
+  "license": {
+    "state": "UNVERIFIED",
+    "expected_spdx": "Apache-2.0",
+    "spdx_id": null,
+    "reasons": [
+      "unrefreshed: the catalog-refresh CI job has not yet read the license text or the model card"
+    ],
+    "evidence": null
+  },
+  "notes": [
+    "No published file matches '*f16.gguf' at revision 60b85c0e3d8fe0f6474f406922a26d12aca4550d; not downloadable."
+  ]
+}

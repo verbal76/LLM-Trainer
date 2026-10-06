@@ -1,0 +1,341 @@
+{
+  "$defs": {
+    "GateCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "default": "OK",
+          "description": "Machine-readable reason code.",
+          "title": "Code",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "requirement": {
+          "title": "Requirement",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "enum": [
+                "yes",
+                "no",
+                "conditional",
+                "unverified"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "requirement",
+        "field",
+        "value",
+        "passed",
+        "reason"
+      ],
+      "title": "GateCheck",
+      "type": "object"
+    },
+    "GateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "title": "Allowed",
+          "type": "boolean"
+        },
+        "attribution_required": {
+          "enum": [
+            "yes",
+            "no",
+            "conditional",
+            "unverified"
+          ],
+          "title": "Attribution Required",
+          "type": "string"
+        },
+        "blocking": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/GateCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "entry_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Entry Hash",
+          "type": "string"
+        },
+        "entry_id": {
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "reason_codes": {
+          "description": "Machine-readable codes for every blocking check.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "remediation": {
+          "description": "What the owner must do to unblock.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Remediation",
+          "type": "array"
+        },
+        "requested_use": {
+          "additionalProperties": true,
+          "title": "Requested Use",
+          "type": "object"
+        },
+        "restrictions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Restrictions",
+          "type": "array"
+        },
+        "verification_state": {
+          "default": "UNVERIFIED",
+          "enum": [
+            "VERIFIED",
+            "UNVERIFIED",
+            "DISALLOWED"
+          ],
+          "title": "Verification State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_id",
+        "entry_hash",
+        "requested_use",
+        "allowed",
+        "checks",
+        "blocking",
+        "attribution_required"
+      ],
+      "title": "GateResult",
+      "type": "object"
+    },
+    "PackageFile": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "model_weights",
+            "adapter",
+            "tokenizer",
+            "model_manifest",
+            "evaluation_report",
+            "provenance_source_manifest",
+            "provenance_dataset_manifest",
+            "license_bundle",
+            "license_gate",
+            "attribution",
+            "runtime_manifest",
+            "training_run",
+            "reference_chunks",
+            "reference_index",
+            "readme"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "role"
+      ],
+      "title": "PackageFile",
+      "type": "object"
+    },
+    "ReferencePackageInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "chunk_count": {
+          "title": "Chunk Count",
+          "type": "integer"
+        },
+        "chunks_path": {
+          "title": "Chunks Path",
+          "type": "string"
+        },
+        "excluded_source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Source Ids",
+          "type": "array"
+        },
+        "index_path": {
+          "title": "Index Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunk_count",
+        "chunks_path",
+        "index_path"
+      ],
+      "title": "ReferencePackageInfo",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/export_package.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "created_on": {
+      "title": "Created On",
+      "type": "string"
+    },
+    "dataset_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
+    "evaluation_hashes": {
+      "items": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Evaluation Hashes",
+      "type": "array"
+    },
+    "export_grade": {
+      "title": "Export Grade",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/PackageFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "is_pipeline_validation_stub": {
+      "title": "Is Pipeline Validation Stub",
+      "type": "boolean"
+    },
+    "kind": {
+      "const": "export_package",
+      "default": "export_package",
+      "title": "Kind",
+      "type": "string"
+    },
+    "license_gate": {
+      "$ref": "#/$defs/GateResult"
+    },
+    "model_identity": {
+      "title": "Model Identity",
+      "type": "string"
+    },
+    "model_manifest_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Model Manifest Hash",
+      "type": "string"
+    },
+    "package_name": {
+      "title": "Package Name",
+      "type": "string"
+    },
+    "package_version": {
+      "title": "Package Version",
+      "type": "string"
+    },
+    "reference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReferencePackageInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "runtime_formats": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Runtime Formats",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_manifest_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Source Manifest Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "package_name",
+    "package_version",
+    "export_grade",
+    "model_identity",
+    "model_manifest_hash",
+    "source_manifest_hash",
+    "dataset_hash",
+    "evaluation_hashes",
+    "license_gate",
+    "files",
+    "runtime_formats",
+    "is_pipeline_validation_stub",
+    "created_on"
+  ],
+  "title": "ExportPackage",
+  "type": "object",
+  "x-schema-version": 1
+}

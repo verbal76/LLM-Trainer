@@ -1,0 +1,147 @@
+name: Publish OTA bundle
+
+# APPLICATION-LAYER OTA UPDATE (never a native APK release; see docs/VERSIONING.md and docs/RELEASE.md).
+# Manual, owner-authorized. Builds + signs a bundle and publishes it to the rolling `ota-stable` release channel.
+# Bundles can only ever reach APKs they are compatible with (see docs/OTA.md); native/runtime changes need a new APK.
+# The application version name must be '<native>.<minor>' with <native> == ota/native-map.json[nativeAbi], minor >= 1.
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_version:
+        description: "Bundle version (integer, strictly greater than any published)"
+        required: false
+      version_name:
+        description: "Application version '<native>.<minor>', e.g. 2.1 (major must equal the native version of native_abi; minor >= 1). Required for dispatch; push trigger reads ota/app-version.txt"
+        required: false
+      host_api_min:
+        description: "Minimum host API level this bundle needs"
+        default: "1"
+      canary_expect:
+        description: "Text that must appear in the product UI after the canary applies the update (empty = only check staging + persistence)"
+        required: false
+        default: ""
+      native_abi:
+        description: "Native ABI of the host this bundle targets (exact). 2 = native v2"
+        default: "2"
+
+  # Owner-authorized alternative trigger (the integration cannot dispatch workflows): pushing branch `ota/v<N>`
+  # publishes bundle N. Same gates as manual dispatch.
+  push:
+    branches: ["ota/v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL_TAG: ota-stable
+      BASE_URL: https://github.com/${{ github.repository }}/releases/download/ota-stable
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Resolve version
+        run: |
+          if [ -n "${{ inputs.bundle_version }}" ]; then V="${{ inputs.bundle_version }}"; else V="${GITHUB_REF_NAME#ota/v}"; fi
+          echo "BV=$V" >> "$GITHUB_ENV"
+          echo "HOST_API_MIN=${{ inputs.host_api_min || '1' }}" >> "$GITHUB_ENV"
+          echo "NATIVE_ABI=${{ inputs.native_abi || '2' }}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_INPUT=${{ inputs.version_name }}" >> "$GITHUB_ENV"
+      - name: Validate
+        env: { OTA: "${{ secrets.OTA_SIGNING_KEY }}" }
+        run: |
+          [[ "$BV" =~ ^[0-9]+$ ]] || { echo "bundle_version must be an integer"; exit 1; }
+          [ -n "$OTA" ] || { echo "::error::OTA_SIGNING_KEY secret missing (docs/OTA.md)"; exit 1; }
+      - uses: actions/checkout@v4
+      - name: Version identity gate (application major must equal the native version of nativeAbi)
+        run: |
+          NAME="$APP_VERSION_INPUT"
+          if [ -z "$NAME" ] && [ -f ota/app-version.txt ]; then NAME=$(tr -d '[:space:]' < ota/app-version.txt); fi
+          [ -n "$NAME" ] || { echo "::error::version_name (or ota/app-version.txt) is required, e.g. 2.1"; exit 1; }
+          NATIVE=$(python3 tools/ci/check-native-map.py ota/native-map.json "$NATIVE_ABI" "$NAME") || { echo "::error::version identity rejected (see message above)"; exit 1; }
+          echo "APP_VERSION=$NAME" >> "$GITHUB_ENV"; echo "NATIVE_MAJOR=$NATIVE" >> "$GITHUB_ENV"
+          echo "APPLICATION-LAYER OTA UPDATE: application $NAME on native $NATIVE (nativeAbi $NATIVE_ABI), OTA sequence #$BV"
+          # The native APK this bundle runs on must already be a published native release.
+          gh release view "v$NATIVE" >/dev/null 2>&1 || { echo "::error::native release v$NATIVE does not exist: an OTA cannot create a native version"; exit 1; }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+        with: { packages: "platforms;android-36 build-tools;36.0.0" }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests
+        run: ./gradlew --no-daemon :ota-core:test :qualify:test :extract:test :studio-api:test :studio-core:test :engine-adapter:test
+      - name: Fetch existing channel bundles
+        run: |
+          mkdir -p prev out
+          gh release download "$CHANNEL_TAG" -p '*.hagb' -D prev 2>/dev/null || echo "no existing channel yet"
+          MAX=0; for f in prev/LLM-Trainer-bundle-*.hagb; do [ -e "$f" ] || continue; n=${f##*bundle-}; n=${n%.hagb}; [ "$n" -gt "$MAX" ] && MAX=$n; done
+          [ "$BV" -gt "$MAX" ] || { echo "::error::bundle_version $BV must be > published $MAX"; exit 1; }
+      - name: Build and sign bundle
+        env: { OTA: "${{ secrets.OTA_SIGNING_KEY }}" }
+        run: |
+          printf '%s' "$OTA" > "$RUNNER_TEMP/ota.key"
+          NAME="$APP_VERSION"
+          ./gradlew --no-daemon :bundle:packBundle -PotaPrivateKeyFile="$RUNNER_TEMP/ota.key" -PotaKeyId=k1 \
+            -PbundleVersion="$BV" -PbundleVersionName="$NAME" -PhostApiMin="$HOST_API_MIN" \
+            -PnativeAbi="$NATIVE_ABI" -PbundleOut="$PWD/out/LLM-Trainer-bundle-$BV.hagb"
+      - name: Qualification gate - verify against the production key and the installed host profile (several Android levels)
+        run: |
+          for SDK in 26 34 37; do
+            ./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/out/LLM-Trainer-bundle-$BV.hagb --pub $PWD/ota/keys/prod.pub --key-id k1 --host-api $HOST_API_MIN --native-abi $NATIVE_ABI --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --sdk $SDK --bundle-id llmtrainer-main --channel stable"
+          done
+      - name: Build channel index
+        run: |
+          cp prev/*.hagb out/ 2>/dev/null || true
+          ./gradlew --no-daemon -q :ota-core:run --args="index --out $PWD/out/channel.json --bundle-id llmtrainer-main --channel stable --base-url $BASE_URL $(ls $PWD/out/*.hagb | tr '\n' ' ')"
+          cat out/channel.json
+      - name: Keep the previous channel for rollback
+        run: |
+          gh release download "$CHANNEL_TAG" -p channel.json -D prevchan 2>/dev/null || echo '{"schema":1,"bundleId":"llmtrainer-main","channel":"stable","generatedAt":"rollback","bundles":[]}' > prevchan/channel.json || true
+          mkdir -p prevchan; [ -f prevchan/channel.json ] || echo '{"schema":1,"bundleId":"llmtrainer-main","channel":"stable","generatedAt":"rollback","bundles":[]}' > prevchan/channel.json
+      - name: Publish to ota-stable
+        id: publish
+        run: |
+          gh release view "$CHANNEL_TAG" >/dev/null 2>&1 || gh release create "$CHANNEL_TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "OTA channel (stable)" --notes "Rolling OTA update channel read by the app. Not an installable release."
+          gh release upload "$CHANNEL_TAG" "out/LLM-Trainer-bundle-$BV.hagb" out/channel.json --clobber
+          echo "Published APPLICATION-LAYER OTA UPDATE: application $APP_VERSION (OTA sequence #$BV) for native $NATIVE_MAJOR (nativeAbi $NATIVE_ABI)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify the PUBLISHED channel end to end (public URL, hashes, signature)
+        run: |
+          sleep 5
+          mkdir -p pub && cd pub
+          curl -fsSL "$BASE_URL/channel.json" -o channel.json
+          python3 - "$BV" <<'PY'
+          import json,hashlib,urllib.request,sys
+          idx=json.load(open('channel.json'))
+          assert idx['bundleId']=='llmtrainer-main' and idx['channel']=='stable', idx
+          ok=False
+          for b in idx['bundles']:
+              data=urllib.request.urlopen(b['url']).read()
+              h=hashlib.sha256(data).hexdigest()
+              assert h==b['sha256'], (b['url'],h,b['sha256'])
+              open('b%d.hagb'%b['bundleVersion'],'wb').write(data)
+              ok=ok or b['bundleVersion']==int(sys.argv[1])
+          assert ok, 'new bundle missing from published channel'
+          print('channel OK:',[b['bundleVersion'] for b in idx['bundles']])
+          PY
+          cd ..
+          ./gradlew --no-daemon -q :ota-core:run --args="verify --bundle $PWD/pub/b$BV.hagb --pub $PWD/ota/keys/prod.pub --key-id k1 --host-api $HOST_API_MIN --native-abi $NATIVE_ABI --cap core.v1 --cap device.snapshot.v1 --cap update.check.v1 --sdk 37 --bundle-id llmtrainer-main --channel stable"
+      - name: Pre-install Android Emulator (retrying)
+        run: bash tools/ci/preinstall-emulator.sh "system-images;android-34;google_apis;x86_64"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Canary - the released native APK updates itself from the published channel (emulator)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: bash tools/ci/canary-v1-ota.sh https://github.com/${{ github.repository }}/releases/download/v${{ env.NATIVE_MAJOR }}/LLM-Trainer-v${{ env.NATIVE_MAJOR }}.apk "${{ inputs.canary_expect }}"
+      - name: ROLLBACK the channel (canary failed)
+        if: failure() && steps.publish.outcome == 'success'
+        run: |
+          echo "::warning::Canary failed: restoring the previous channel.json so no device is offered this bundle."
+          gh release upload "$CHANNEL_TAG" prevchan/channel.json --clobber

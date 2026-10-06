@@ -1,0 +1,364 @@
+{
+  "$defs": {
+    "ArtifactFile": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "role"
+      ],
+      "title": "ArtifactFile",
+      "type": "object"
+    },
+    "BaseModelRef": {
+      "additionalProperties": false,
+      "properties": {
+        "exact_version": {
+          "title": "Exact Version",
+          "type": "string"
+        },
+        "license_entry_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "License Entry Hash",
+          "type": "string"
+        },
+        "license_id": {
+          "title": "License Id",
+          "type": "string"
+        },
+        "license_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "VERIFIED",
+                "UNVERIFIED",
+                "CONDITIONAL",
+                "RESTRICTED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License State"
+        },
+        "model_family": {
+          "title": "Model Family",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_family",
+        "exact_version",
+        "license_id",
+        "license_entry_hash"
+      ],
+      "title": "BaseModelRef",
+      "type": "object"
+    },
+    "ContextAssumptions": {
+      "additionalProperties": false,
+      "properties": {
+        "max_supported_context_tokens": {
+          "title": "Max Supported Context Tokens",
+          "type": "integer"
+        },
+        "recommended_context_tokens": {
+          "title": "Recommended Context Tokens",
+          "type": "integer"
+        },
+        "trained_context_tokens": {
+          "title": "Trained Context Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "trained_context_tokens",
+        "max_supported_context_tokens",
+        "recommended_context_tokens"
+      ],
+      "title": "ContextAssumptions",
+      "type": "object"
+    },
+    "QuantizationInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "bits_per_weight": {
+          "title": "Bits Per Weight",
+          "type": "number"
+        },
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "bits_per_weight",
+        "format"
+      ],
+      "title": "QuantizationInfo",
+      "type": "object"
+    },
+    "RuntimeRequirements": {
+      "additionalProperties": false,
+      "properties": {
+        "formats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Formats",
+          "type": "array"
+        },
+        "min_ram_mb_estimate": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Ram Mb Estimate"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "runtimes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Runtimes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "runtimes",
+        "formats"
+      ],
+      "title": "RuntimeRequirements",
+      "type": "object"
+    },
+    "TokenizerInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "additionalProperties": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "object"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "TokenizerInfo",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/model_manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adapter_method": {
+      "enum": [
+        "stub",
+        "lora",
+        "qlora",
+        "full",
+        "merged"
+      ],
+      "title": "Adapter Method",
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactFile"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "base_model": {
+      "$ref": "#/$defs/BaseModelRef"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "context": {
+      "$ref": "#/$defs/ContextAssumptions"
+    },
+    "dataset_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
+    "dataset_version": {
+      "title": "Dataset Version",
+      "type": "integer"
+    },
+    "evaluation_hashes": {
+      "items": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Evaluation Hashes",
+      "type": "array"
+    },
+    "export_date": {
+      "title": "Export Date",
+      "type": "string"
+    },
+    "is_pipeline_validation_stub": {
+      "default": false,
+      "title": "Is Pipeline Validation Stub",
+      "type": "boolean"
+    },
+    "kind": {
+      "const": "model_manifest",
+      "default": "model_manifest",
+      "title": "Kind",
+      "type": "string"
+    },
+    "known_limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Known Limitations",
+      "type": "array"
+    },
+    "local_experiment": {
+      "default": false,
+      "title": "Local Experiment",
+      "type": "boolean"
+    },
+    "quantization": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QuantizationInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "runtime": {
+      "$ref": "#/$defs/RuntimeRequirements"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_manifest_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Source Manifest Hash",
+      "type": "string"
+    },
+    "source_manifest_version": {
+      "title": "Source Manifest Version",
+      "type": "integer"
+    },
+    "specialist_name": {
+      "title": "Specialist Name",
+      "type": "string"
+    },
+    "specialist_version": {
+      "title": "Specialist Version",
+      "type": "string"
+    },
+    "target_profile": {
+      "title": "Target Profile",
+      "type": "string"
+    },
+    "tokenizer": {
+      "$ref": "#/$defs/TokenizerInfo"
+    },
+    "training_config": {
+      "additionalProperties": true,
+      "title": "Training Config",
+      "type": "object"
+    },
+    "training_config_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Training Config Hash"
+    },
+    "training_run_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Training Run Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "specialist_name",
+    "specialist_version",
+    "base_model",
+    "adapter_method",
+    "dataset_version",
+    "dataset_hash",
+    "source_manifest_version",
+    "source_manifest_hash",
+    "training_run_hash",
+    "training_config",
+    "tokenizer",
+    "context",
+    "runtime",
+    "evaluation_hashes",
+    "export_date",
+    "artifacts",
+    "target_profile",
+    "known_limitations"
+  ],
+  "title": "ModelManifest",
+  "type": "object",
+  "x-schema-version": 1
+}

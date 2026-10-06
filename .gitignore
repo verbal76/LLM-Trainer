@@ -1,0 +1,14 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+*.jks
+*.keystore
+*.key
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.venv/
+.claude/worktrees/
+.kotlin/

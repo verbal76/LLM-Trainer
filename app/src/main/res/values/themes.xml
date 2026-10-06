@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hag_bg">#0E0E12</color>
+    <!-- System/native startup window: plain brand-neutral background so the very first frame is clean;
+         the studio logo itself is drawn by HostActivity (exact asset, no resource processing). -->
+    <style name="Theme.Hag.Splash" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/hag_bg</item>
+        <item name="android:statusBarColor">@color/hag_bg</item>
+        <item name="android:navigationBarColor">@color/hag_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

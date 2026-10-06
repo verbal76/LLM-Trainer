@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "artifact_id": "qwen3-0.6b-bf16",
+  "refresh_state": "refreshed",
+  "refreshed_at": "2026-10-05T17:43:01Z",
+  "optional": true,
+  "published": true,
+  "family": "Qwen3",
+  "base_repo": "Qwen/Qwen3-0.6B",
+  "source": {
+    "repo": "bartowski/Qwen_Qwen3-0.6B-GGUF",
+    "repo_url": "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF",
+    "file": "Qwen_Qwen3-0.6B-bf16.gguf",
+    "file_glob": "*bf16.gguf",
+    "revision": "60b85c0e3d8fe0f6474f406922a26d12aca4550d",
+    "download_url": "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/60b85c0e3d8fe0f6474f406922a26d12aca4550d/Qwen_Qwen3-0.6B-bf16.gguf"
+  },
+  "format": "gguf",
+  "quantization": "BF16",
+  "precision": "bf16",
+  "size_bytes": 1509347488,
+  "sha256": "sha256:6bbe7c978ab2dab9f4e70c040ef4ad53928cacf3d24bc5dc7252aff93be92386",
+  "parameter_count_nominal_b": 0.6,
+  "parameter_count": 751632384,
+  "architecture": {
+    "layers": 28,
+    "kv_heads": 8,
+    "heads": 16,
+    "head_dim": 128,
+    "embd": 1024,
+    "ffn": 3072,
+    "ctx_train": 32768,
+    "vocab": 151936,
+    "name": "qwen3"
+  },
+  "chat_template_present": true,
+  "chat_template_sha256": "5595e8741bb5500f9d395e05a0aefe6ca1e8d54c5dd8b98bcf7760d895fdc6e6",
+  "runtime_compat": {
+    "llama.cpp": {
+      "architecture": "qwen3",
+      "supported": "yes",
+      "min_build": "b5401"
+    },
+    "hag-engine": {
+      "architecture": "qwen3",
+      "supported": "unverified",
+      "min_build": null
+    }
+  },
+  "training": {
+    "class": "local_partial",
+    "reasons": [
+      "full tuning needs ~16 bytes/param (too large for a phone); tuning only the last N layers can fit a high-RAM phone"
+    ],
+    "model_class_if_full_precision": "local_partial",
+    "training_source_artifact_id": null,
+    "assumptions": "F32-only trainer; docs/v2/TRAINING_FEASIBILITY.md not yet available"
+  },
+  "license": {
+    "state": "UNVERIFIED",
+    "expected_spdx": "Apache-2.0",
+    "spdx_id": null,
+    "reasons": [
+      "fetched license text is not byte-identical to any canonical reference text (Apache-2.0, MIT)"
+    ],
+    "evidence": {
+      "expected_spdx": "Apache-2.0",
+      "license_text_url": "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE",
+      "license_text_sha256": "sha256:832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+      "license_text_bytes": 11343,
+      "canonical_spdx": null,
+      "canonical_sha256": null,
+      "canonical_source_url": null,
+      "match": "mismatch",
+      "model_card_licenses": {
+        "bartowski/Qwen_Qwen3-0.6B-GGUF": null,
+        "Qwen/Qwen3-0.6B": "apache-2.0"
+      },
+      "model_card_agrees": false,
+      "fetched_at": "2026-10-05T17:43:01Z"
+    }
+  },
+  "notes": []
+}

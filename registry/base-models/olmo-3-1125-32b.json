@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "model_family": "Olmo 3",
+  "exact_version": "Olmo-3-1125-32B (base)",
+  "hf_repo_or_source": "allenai/Olmo-3-1125-32B",
+  "parameter_count": "32B (nominal)",
+  "license_id": "Apache-2.0",
+  "license_url": "https://www.apache.org/licenses/LICENSE-2.0.txt ; Ai2 announcement says Apache 2.0 for all models (secondary: hpcwire/Willison)",
+  "commercial_use": "yes",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Apache-2.0 s.4: redistributors must include a copy of the License, retain copyright/attribution notices, and mark modified files with prominent change notices (verified against apache.org text).",
+    "Apache-2.0 s.6: no trademark license; do not imply endorsement by the model publisher.",
+    "Apache-2.0 s.3: patent licenses terminate if the licensee sues alleging the Work infringes a patent.",
+    "Training-data provenance of the base model is NOT covered by this registry entry; the license of the weights does not by itself settle rights in the pretraining data (not assessed)."
+  ],
+  "supported_formats": [
+    "safetensors (HF transformers)",
+    "OLMo-core, vLLM"
+  ],
+  "context_length": null,
+  "architecture": {
+    "layers": null,
+    "kv_heads": null,
+    "head_dim": null,
+    "hidden_size": null,
+    "attention": null,
+    "notes": "Not obtained."
+  },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/allenai/Olmo-3-1125-32B",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
+  "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
+    "source_urls": [
+      "https://github.com/allenai/OLMo-core",
+      "https://huggingface.co/allenai/Olmo-3-1025-7B (search excerpt: 'code and model are released under Apache 2.0')",
+      "https://www.hpcwire.com/aiwire/2025/11/20/ai2-announces-olmo-3-family-of-open-frontier-language-models/",
+      "https://simonwillison.net/2025/Nov/22/olmo-3/"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Exact repo id inferred from a search-result title; verify.",
+      "Context length and architecture not obtained.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
+  }
+}

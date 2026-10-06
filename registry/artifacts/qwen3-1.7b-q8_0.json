@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "artifact_id": "qwen3-1.7b-q8_0",
+  "refresh_state": "refreshed",
+  "refreshed_at": "2026-10-05T17:43:01Z",
+  "optional": false,
+  "published": true,
+  "family": "Qwen3",
+  "base_repo": "Qwen/Qwen3-1.7B",
+  "source": {
+    "repo": "Qwen/Qwen3-1.7B-GGUF",
+    "repo_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF",
+    "file": "Qwen3-1.7B-Q8_0.gguf",
+    "file_glob": "*q8_0.gguf",
+    "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+    "download_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/90862c4b9d2787eaed51d12237eafdfe7c5f6077/Qwen3-1.7B-Q8_0.gguf"
+  },
+  "format": "gguf",
+  "quantization": "Q8_0",
+  "precision": "quantized",
+  "size_bytes": 1834426016,
+  "sha256": "sha256:061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+  "parameter_count_nominal_b": 1.7,
+  "parameter_count": 1720574976,
+  "architecture": {
+    "layers": 28,
+    "kv_heads": 8,
+    "heads": 16,
+    "head_dim": 128,
+    "embd": 2048,
+    "ffn": 6144,
+    "ctx_train": 40960,
+    "vocab": 151936,
+    "name": "qwen3"
+  },
+  "chat_template_present": true,
+  "chat_template_sha256": "57f1fd00f0013a2be96aa79b857391f27e23df5b5f847072b524c897e24d0361",
+  "runtime_compat": {
+    "llama.cpp": {
+      "architecture": "qwen3",
+      "supported": "yes",
+      "min_build": "b5401"
+    },
+    "hag-engine": {
+      "architecture": "qwen3",
+      "supported": "unverified",
+      "min_build": null
+    }
+  },
+  "training": {
+    "class": "inference_only",
+    "reasons": [
+      "block-quantized GGUF weights cannot be trained in place; the on-device trainer works on full-precision weights (F32 compute)"
+    ],
+    "model_class_if_full_precision": "external_only",
+    "training_source_artifact_id": null,
+    "assumptions": "F32-only trainer; docs/v2/TRAINING_FEASIBILITY.md not yet available"
+  },
+  "license": {
+    "state": "UNVERIFIED",
+    "expected_spdx": "Apache-2.0",
+    "spdx_id": null,
+    "reasons": [
+      "fetched license text is not byte-identical to any canonical reference text (Apache-2.0, MIT)"
+    ],
+    "evidence": {
+      "expected_spdx": "Apache-2.0",
+      "license_text_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/90862c4b9d2787eaed51d12237eafdfe7c5f6077/LICENSE",
+      "license_text_sha256": "sha256:5de36594c10839788a8c589443a8ef9d8b8d17c65a1b5807206ae037fc36c6bd",
+      "license_text_bytes": 11544,
+      "canonical_spdx": null,
+      "canonical_sha256": null,
+      "canonical_source_url": null,
+      "match": "mismatch",
+      "model_card_licenses": {
+        "Qwen/Qwen3-1.7B-GGUF": "apache-2.0",
+        "Qwen/Qwen3-1.7B": "apache-2.0"
+      },
+      "model_card_agrees": false,
+      "fetched_at": "2026-10-05T17:43:01Z"
+    }
+  },
+  "notes": []
+}

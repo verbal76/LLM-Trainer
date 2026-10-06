@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "model_family": "Llama 3.1",
+  "exact_version": "Llama-3.1-8B (base) / -Instruct",
+  "hf_repo_or_source": "meta-llama/Llama-3.1-8B",
+  "parameter_count": "8B (nominal)",
+  "license_id": "LLAMA-3.1-COMMUNITY (custom; not an OSI license)",
+  "license_url": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_1/LICENSE",
+  "commercial_use": "conditional",
+  "fine_tuning_permitted": "conditional",
+  "derivative_adapter_permitted": "conditional",
+  "redistribution_permitted": "conditional",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Llama 3.1 Community License: redistribution requires including the agreement, displaying 'Built with Llama', and retaining the copyright notice.",
+    "Any distributed AI model created/trained/fine-tuned/improved using Llama Materials must include 'Llama' at the beginning of its name (per fetched license text).",
+    "Licensees with >700M monthly active users on the release date must request a separate license from Meta.",
+    "Use must comply with Meta's Acceptable Use Policy (https://llama.meta.com/llama3_1/use-policy).",
+    "No EU multimodal carve-out identified in the fetched text for this version (not independently re-checked against the AUP).",
+    "Governing-law/entity terms differ by licensee location (see license text); not legal advice."
+  ],
+  "supported_formats": [
+    "safetensors (HF; gated)",
+    "GGUF (llama.cpp; used as the reference model in llama.cpp quantize README)",
+    "ExecuTorch .pte (Llama 3.1 8B in demo app list)"
+  ],
+  "context_length": 131072,
+  "architecture": {
+    "layers": 32,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "hidden_size": 4096,
+    "attention": null,
+    "notes": "head_dim = hidden/heads (4096/32) derived; layers/kv from third-party mirror config excerpts."
+  },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/meta-llama/Llama-3.1-8B",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)",
+      "ExecuTorch"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
+  "verification": {
+    "state": "VERIFIED",
+    "evidence_level": "primary_license_text_read",
+    "source_urls": [
+      "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_1/LICENSE",
+      "https://raw.githubusercontent.com/ggml-org/llama.cpp/master/tools/quantize/README.md",
+      "https://docs.pytorch.org/executorch/0.7/llm/llama-demo-android.html"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "The referenced Acceptable Use Policy was not read.",
+      "The copy of the license shipped in the Hugging Face model repository was not read (huggingface.co unreachable from the verification sandbox); it is assumed identical to the official GitHub text, whose sha256 is pinned.",
+      "Earlier registry review read the license through a summarizer; this verification supersedes it. Not legal advice."
+    ],
+    "license_text_sha256": "sha256:bf2eac60b81e5c5f779fc3b4849d3bfacfd63f97f3eb68b44e9c6868c5801712",
+    "license_text_url": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_1/LICENSE",
+    "verified_scope": "Llama 3.1 Community License Agreement text (7680 bytes) read in full from the official meta-llama/llama-models repository. Verified only that the text was read and what it says; permission values are left 'conditional' because the agreement imposes conditions (naming, 'Built with Llama', notice file, AUP, 700M-MAU clause) that need human acceptance, so the gate still blocks."
+  }
+}

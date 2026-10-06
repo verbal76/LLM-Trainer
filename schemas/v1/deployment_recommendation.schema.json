@@ -1,0 +1,764 @@
+{
+  "$defs": {
+    "CandidateAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking Reasons",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "measured",
+            "partial",
+            "estimated"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "config": {
+          "$ref": "#/$defs/CandidateConfig"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "quality_score": {
+          "title": "Quality Score",
+          "type": "number"
+        },
+        "ram": {
+          "$ref": "#/$defs/RamBreakdown"
+        },
+        "ram_verdict": {
+          "enum": [
+            "fit",
+            "no_fit",
+            "unverified"
+          ],
+          "title": "Ram Verdict",
+          "type": "string"
+        },
+        "safe_to_deploy": {
+          "title": "Safe To Deploy",
+          "type": "boolean"
+        },
+        "storage": {
+          "$ref": "#/$defs/StorageBreakdown"
+        },
+        "storage_verdict": {
+          "enum": [
+            "fit",
+            "no_fit",
+            "unverified"
+          ],
+          "title": "Storage Verdict",
+          "type": "string"
+        },
+        "sustained": {
+          "$ref": "#/$defs/SustainedAssessment"
+        },
+        "sustained_verdict": {
+          "enum": [
+            "fit",
+            "no_fit",
+            "unverified"
+          ],
+          "title": "Sustained Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "config",
+        "storage_verdict",
+        "ram_verdict",
+        "sustained_verdict",
+        "storage",
+        "ram",
+        "sustained",
+        "confidence",
+        "quality_score",
+        "safe_to_deploy",
+        "eligible"
+      ],
+      "title": "CandidateAssessment",
+      "type": "object"
+    },
+    "CandidateConfig": {
+      "additionalProperties": false,
+      "description": "A complete deployable configuration: model + quant + context + runtime + retrieval.",
+      "properties": {
+        "config_id": {
+          "title": "Config Id",
+          "type": "string"
+        },
+        "context_tokens": {
+          "title": "Context Tokens",
+          "type": "integer"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelSpec"
+        },
+        "quant": {
+          "$ref": "#/$defs/QuantSpec"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/RetrievalBudget"
+        },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeSpec"
+        },
+        "weights_file_mb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weights File Mb"
+        }
+      },
+      "required": [
+        "config_id",
+        "model",
+        "quant",
+        "context_tokens",
+        "runtime"
+      ],
+      "title": "CandidateConfig",
+      "type": "object"
+    },
+    "ModelSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "head_dim": {
+          "title": "Head Dim",
+          "type": "integer"
+        },
+        "kv_heads": {
+          "title": "Kv Heads",
+          "type": "integer"
+        },
+        "layers": {
+          "title": "Layers",
+          "type": "integer"
+        },
+        "max_context": {
+          "default": 8192,
+          "title": "Max Context",
+          "type": "integer"
+        },
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "params_b": {
+          "title": "Params B",
+          "type": "number"
+        },
+        "quality_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality Score"
+        }
+      },
+      "required": [
+        "model_id",
+        "params_b",
+        "layers",
+        "kv_heads",
+        "head_dim"
+      ],
+      "title": "ModelSpec",
+      "type": "object"
+    },
+    "ProfilePick": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "measured",
+                "partial",
+                "estimated"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CandidateConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "profile": {
+          "enum": [
+            "performance",
+            "balanced",
+            "max_quality"
+          ],
+          "title": "Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "tier": {
+          "enum": [
+            "recommended",
+            "provisional",
+            "none"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "verified_fallback_config_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified Fallback Config Id"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "profile",
+        "label",
+        "config",
+        "tier",
+        "recommended",
+        "reason"
+      ],
+      "title": "ProfilePick",
+      "type": "object"
+    },
+    "QuantSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "bits_per_weight": {
+          "title": "Bits Per Weight",
+          "type": "number"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "quality_penalty": {
+          "title": "Quality Penalty",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "bits_per_weight",
+        "quality_penalty"
+      ],
+      "title": "QuantSpec",
+      "type": "object"
+    },
+    "RamBreakdown": {
+      "additionalProperties": false,
+      "properties": {
+        "background_reserve_mb": {
+          "title": "Background Reserve Mb",
+          "type": "number"
+        },
+        "estimate_inflation": {
+          "title": "Estimate Inflation",
+          "type": "number"
+        },
+        "headroom_mb": {
+          "title": "Headroom Mb",
+          "type": "number"
+        },
+        "host_app_mb": {
+          "title": "Host App Mb",
+          "type": "number"
+        },
+        "kv_cache_mb": {
+          "title": "Kv Cache Mb",
+          "type": "number"
+        },
+        "measured_override": {
+          "title": "Measured Override",
+          "type": "boolean"
+        },
+        "os_reserve_mb": {
+          "title": "Os Reserve Mb",
+          "type": "number"
+        },
+        "ram_budget_mb": {
+          "title": "Ram Budget Mb",
+          "type": "number"
+        },
+        "required_model_side_mb": {
+          "title": "Required Model Side Mb",
+          "type": "number"
+        },
+        "retrieval_mb": {
+          "title": "Retrieval Mb",
+          "type": "number"
+        },
+        "runtime_mb": {
+          "title": "Runtime Mb",
+          "type": "number"
+        },
+        "safety_reserve_mb": {
+          "title": "Safety Reserve Mb",
+          "type": "number"
+        },
+        "total_ram_mb": {
+          "title": "Total Ram Mb",
+          "type": "number"
+        },
+        "utilization": {
+          "title": "Utilization",
+          "type": "number"
+        },
+        "weights_inflation": {
+          "default": 1.0,
+          "title": "Weights Inflation",
+          "type": "number"
+        },
+        "weights_mb": {
+          "title": "Weights Mb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "weights_mb",
+        "runtime_mb",
+        "kv_cache_mb",
+        "retrieval_mb",
+        "estimate_inflation",
+        "required_model_side_mb",
+        "measured_override",
+        "total_ram_mb",
+        "os_reserve_mb",
+        "background_reserve_mb",
+        "host_app_mb",
+        "safety_reserve_mb",
+        "ram_budget_mb",
+        "headroom_mb",
+        "utilization"
+      ],
+      "title": "RamBreakdown",
+      "type": "object"
+    },
+    "RetrievalBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "index_ram_mb": {
+          "default": 0.0,
+          "title": "Index Ram Mb",
+          "type": "number"
+        },
+        "index_storage_mb": {
+          "default": 0.0,
+          "title": "Index Storage Mb",
+          "type": "number"
+        },
+        "top_k": {
+          "default": 0,
+          "title": "Top K",
+          "type": "integer"
+        }
+      },
+      "title": "RetrievalBudget",
+      "type": "object"
+    },
+    "RuntimeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kv_dtype": {
+          "default": "f16",
+          "enum": [
+            "f16",
+            "q8_0",
+            "q4_0"
+          ],
+          "title": "Kv Dtype",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "overhead_mb": {
+          "title": "Overhead Mb",
+          "type": "number"
+        },
+        "scratch_mb_per_1k_ctx": {
+          "default": 0.0,
+          "title": "Scratch Mb Per 1K Ctx",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "overhead_mb"
+      ],
+      "title": "RuntimeSpec",
+      "type": "object"
+    },
+    "SafetyPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "balanced_max_utilization": {
+          "default": 0.92,
+          "title": "Balanced Max Utilization",
+          "type": "number"
+        },
+        "balanced_min_context": {
+          "default": 2048,
+          "title": "Balanced Min Context",
+          "type": "integer"
+        },
+        "balanced_min_tps": {
+          "default": 4.0,
+          "title": "Balanced Min Tps",
+          "type": "number"
+        },
+        "bandwidth_efficiency": {
+          "default": 0.4,
+          "title": "Bandwidth Efficiency",
+          "type": "number"
+        },
+        "estimate_inflation": {
+          "default": 1.25,
+          "title": "Estimate Inflation",
+          "type": "number"
+        },
+        "estimate_thermal_derate": {
+          "default": 0.7,
+          "title": "Estimate Thermal Derate",
+          "type": "number"
+        },
+        "fallback_bandwidth_gbps": {
+          "default": 25.0,
+          "title": "Fallback Bandwidth Gbps",
+          "type": "number"
+        },
+        "max_quality_max_utilization": {
+          "default": 1.0,
+          "title": "Max Quality Max Utilization",
+          "type": "number"
+        },
+        "max_quant_penalty": {
+          "default": 3.0,
+          "title": "Max Quant Penalty",
+          "type": "number"
+        },
+        "max_ttft_ms": {
+          "default": 8000,
+          "title": "Max Ttft Ms",
+          "type": "number"
+        },
+        "max_ui_jank_pct": {
+          "default": 5.0,
+          "title": "Max Ui Jank Pct",
+          "type": "number"
+        },
+        "min_sustained_minutes": {
+          "default": 10.0,
+          "title": "Min Sustained Minutes",
+          "type": "number"
+        },
+        "min_thermal_ratio": {
+          "default": 0.7,
+          "title": "Min Thermal Ratio",
+          "type": "number"
+        },
+        "min_tps": {
+          "default": 3.0,
+          "title": "Min Tps",
+          "type": "number"
+        },
+        "performance_max_utilization": {
+          "default": 0.6,
+          "title": "Performance Max Utilization",
+          "type": "number"
+        },
+        "performance_min_tps": {
+          "default": 10.0,
+          "title": "Performance Min Tps",
+          "type": "number"
+        },
+        "safety_reserve_frac": {
+          "default": 0.08,
+          "title": "Safety Reserve Frac",
+          "type": "number"
+        },
+        "safety_reserve_min_mb": {
+          "default": 256,
+          "title": "Safety Reserve Min Mb",
+          "type": "number"
+        },
+        "storage_reserve_frac": {
+          "default": 0.1,
+          "title": "Storage Reserve Frac",
+          "type": "number"
+        },
+        "storage_reserve_min_mb": {
+          "default": 2048,
+          "title": "Storage Reserve Min Mb",
+          "type": "number"
+        },
+        "weights_inflation": {
+          "default": 1.05,
+          "title": "Weights Inflation",
+          "type": "number"
+        }
+      },
+      "title": "SafetyPolicy",
+      "type": "object"
+    },
+    "StorageBreakdown": {
+      "additionalProperties": false,
+      "properties": {
+        "available_after_reserve_mb": {
+          "title": "Available After Reserve Mb",
+          "type": "number"
+        },
+        "free_mb": {
+          "title": "Free Mb",
+          "type": "number"
+        },
+        "headroom_mb": {
+          "title": "Headroom Mb",
+          "type": "number"
+        },
+        "model_file_mb": {
+          "title": "Model File Mb",
+          "type": "number"
+        },
+        "required_mb": {
+          "title": "Required Mb",
+          "type": "number"
+        },
+        "reserve_mb": {
+          "title": "Reserve Mb",
+          "type": "number"
+        },
+        "retrieval_mb": {
+          "title": "Retrieval Mb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model_file_mb",
+        "retrieval_mb",
+        "required_mb",
+        "free_mb",
+        "reserve_mb",
+        "available_after_reserve_mb",
+        "headroom_mb"
+      ],
+      "title": "StorageBreakdown",
+      "type": "object"
+    },
+    "SustainedAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "enum": [
+            "measured",
+            "partial",
+            "estimated"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "est_tokens_per_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Tokens Per S"
+        },
+        "est_ttft_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Ttft Ms"
+        },
+        "missing_measurements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Measurements",
+          "type": "array"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "tokens_per_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Per S"
+        },
+        "ttft_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttft Ms"
+        },
+        "verdict": {
+          "enum": [
+            "fit",
+            "no_fit",
+            "unverified"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict",
+        "basis"
+      ],
+      "title": "SustainedAssessment",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/deployment_recommendation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "algorithm_version": {
+      "title": "Algorithm Version",
+      "type": "string"
+    },
+    "assessed": {
+      "items": {
+        "$ref": "#/$defs/CandidateAssessment"
+      },
+      "title": "Assessed",
+      "type": "array"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "created_on": {
+      "title": "Created On",
+      "type": "string"
+    },
+    "device_id": {
+      "title": "Device Id",
+      "type": "string"
+    },
+    "device_profile_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Device Profile Hash",
+      "type": "string"
+    },
+    "kind": {
+      "const": "deployment_recommendation",
+      "default": "deployment_recommendation",
+      "title": "Kind",
+      "type": "string"
+    },
+    "picks": {
+      "items": {
+        "$ref": "#/$defs/ProfilePick"
+      },
+      "title": "Picks",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/SafetyPolicy"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "algorithm_version",
+    "device_profile_hash",
+    "device_id",
+    "policy",
+    "picks",
+    "assessed",
+    "created_on"
+  ],
+  "title": "DeploymentRecommendation",
+  "type": "object",
+  "x-schema-version": 1
+}

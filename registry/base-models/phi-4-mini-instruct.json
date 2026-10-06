@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "model_family": "Phi-4-mini",
+  "exact_version": "Phi-4-mini-instruct",
+  "hf_repo_or_source": "microsoft/Phi-4-mini-instruct",
+  "parameter_count": "3.8B (secondary source)",
+  "license_id": "MIT (reported; unverified)",
+  "license_url": "unverified",
+  "commercial_use": "unverified",
+  "fine_tuning_permitted": "unverified",
+  "derivative_adapter_permitted": "unverified",
+  "redistribution_permitted": "unverified",
+  "attribution_required": "unverified",
+  "restrictions": [
+    "No primary license text read - unverified. MIT would normally require retaining the copyright/permission notice; confirm from the repo LICENSE."
+  ],
+  "supported_formats": [
+    "safetensors (HF)",
+    "ONNX Runtime GenAI (Phi listed as supported family)",
+    "LiteRT-LM (README lists Phi-4)"
+  ],
+  "context_length": 131072,
+  "architecture": {
+    "layers": null,
+    "kv_heads": null,
+    "head_dim": null,
+    "hidden_size": null,
+    "attention": null,
+    "notes": "GQA, 200K vocab per secondary source; layer counts not obtained."
+  },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/microsoft/Phi-4-mini-instruct",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "ONNX Runtime GenAI",
+      "LiteRT-LM"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
+  "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
+    "source_urls": [
+      "https://github.com/microsoft/PhiCookBook (cookbook repo MIT; not the weights license)",
+      "https://huggingface.co/microsoft/Phi-4-mini-instruct (search result only)",
+      "https://github.com/microsoft/onnxruntime-genai",
+      "https://github.com/google-ai-edge/LiteRT-LM"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Only third-party pages (PromptLayer, dev.co, OpenRouter) stated MIT/3.8B/128K; microsoft HF card not fetched.",
+      "Phi-4-mini is a 'instruct' checkpoint (no base listed in this round); fine-tuning an instruct checkpoint changes eval baselines.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
+  }
+}

@@ -1,0 +1,300 @@
+{
+  "$defs": {
+    "EvalSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "model_ref": {
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "base",
+            "specialist",
+            "quantized"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "model_ref"
+      ],
+      "title": "EvalSubject",
+      "type": "object"
+    },
+    "EvaluatorInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "is_stub": {
+          "title": "Is Stub",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "is_stub"
+      ],
+      "title": "EvaluatorInfo",
+      "type": "object"
+    },
+    "MetricComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "title": "Base",
+          "type": "number"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "higher_is_better": {
+          "title": "Higher Is Better",
+          "type": "boolean"
+        },
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "quantization_regression": {
+          "default": false,
+          "title": "Quantization Regression",
+          "type": "boolean"
+        },
+        "quantized": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantized"
+        },
+        "quantized_minus_specialist": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantized Minus Specialist"
+        },
+        "regression": {
+          "title": "Regression",
+          "type": "boolean"
+        },
+        "regression_tolerance": {
+          "title": "Regression Tolerance",
+          "type": "number"
+        },
+        "specialist": {
+          "title": "Specialist",
+          "type": "number"
+        },
+        "specialist_minus_base": {
+          "title": "Specialist Minus Base",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "category",
+        "higher_is_better",
+        "base",
+        "specialist",
+        "specialist_minus_base",
+        "regression",
+        "regression_tolerance"
+      ],
+      "title": "MetricComparison",
+      "type": "object"
+    },
+    "MetricResult": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "default": "domain",
+          "enum": [
+            "domain",
+            "general_regression",
+            "grounding",
+            "safety"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "higher_is_better": {
+          "default": true,
+          "title": "Higher Is Better",
+          "type": "boolean"
+        },
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "n": {
+          "title": "N",
+          "type": "integer"
+        },
+        "subject_role": {
+          "enum": [
+            "base",
+            "specialist",
+            "quantized"
+          ],
+          "title": "Subject Role",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "subject_role",
+        "value",
+        "n"
+      ],
+      "title": "MetricResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/evaluation_run.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "comparisons": {
+      "items": {
+        "$ref": "#/$defs/MetricComparison"
+      },
+      "title": "Comparisons",
+      "type": "array"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "dataset_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
+    "eval_id": {
+      "title": "Eval Id",
+      "type": "string"
+    },
+    "eval_split": {
+      "default": "test",
+      "enum": [
+        "validation",
+        "test"
+      ],
+      "title": "Eval Split",
+      "type": "string"
+    },
+    "evaluated_on": {
+      "title": "Evaluated On",
+      "type": "string"
+    },
+    "evaluator": {
+      "$ref": "#/$defs/EvaluatorInfo"
+    },
+    "improvement_claim_allowed": {
+      "title": "Improvement Claim Allowed",
+      "type": "boolean"
+    },
+    "kind": {
+      "const": "evaluation_run",
+      "default": "evaluation_run",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/MetricResult"
+      },
+      "title": "Metrics",
+      "type": "array"
+    },
+    "n_eval_examples": {
+      "title": "N Eval Examples",
+      "type": "integer"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "subjects": {
+      "items": {
+        "$ref": "#/$defs/EvalSubject"
+      },
+      "title": "Subjects",
+      "type": "array"
+    },
+    "train_eval_group_overlap": {
+      "title": "Train Eval Group Overlap",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "eval_id",
+    "project_id",
+    "dataset_hash",
+    "n_eval_examples",
+    "train_eval_group_overlap",
+    "evaluator",
+    "subjects",
+    "metrics",
+    "comparisons",
+    "improvement_claim_allowed",
+    "evaluated_on"
+  ],
+  "title": "EvaluationRun",
+  "type": "object",
+  "x-schema-version": 1
+}

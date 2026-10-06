@@ -1,0 +1,72 @@
+{
+  "schema_version": 2,
+  "model_family": "Qwen3.5",
+  "exact_version": "Qwen3.5-9B",
+  "hf_repo_or_source": "Qwen/Qwen3.5-9B",
+  "parameter_count": "9B (nominal)",
+  "license_id": "Apache-2.0",
+  "license_url": "https://www.apache.org/licenses/LICENSE-2.0.txt (generic text); per-repo file: https://huggingface.co/Qwen/Qwen3.5-9B/blob/main/LICENSE (not read)",
+  "commercial_use": "yes",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Apache-2.0 s.4: redistributors must include a copy of the License, retain copyright/attribution notices, and mark modified files with prominent change notices (verified against apache.org text).",
+    "Apache-2.0 s.6: no trademark license; do not imply endorsement by the model publisher.",
+    "Apache-2.0 s.3: patent licenses terminate if the licensee sues alleging the Work infringes a patent.",
+    "Training-data provenance of the base model is NOT covered by this registry entry; the license of the weights does not by itself settle rights in the pretraining data (not assessed).",
+    "Qwen3.5 is multimodal (text+image+video); HF repo is a unified checkpoint that includes vision components."
+  ],
+  "supported_formats": [
+    "safetensors (Hugging Face transformers)",
+    "GGUF (llama.cpp, text & vision per Qwen README; arch needs recent llama.cpp with GATED_DELTA_NET op)",
+    "MLX"
+  ],
+  "context_length": 262144,
+  "architecture": {
+    "layers": 32,
+    "kv_heads": 4,
+    "head_dim": null,
+    "hidden_size": 4096,
+    "attention": null,
+    "notes": "Hybrid: layer_types alternate 3 linear_attention : 1 full_attention (full_attention_interval=4). KV heads/head_dim refer to full-attention layers. head_dim not obtained (linear heads 16 key/32 value dim 128 reported)."
+  },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-9B",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
+  "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
+    "source_urls": [
+      "https://github.com/QwenLM/Qwen3.5",
+      "https://raw.githubusercontent.com/QwenLM/Qwen3.5/main/README.md",
+      "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "https://www.therundown.ai/tools/qwen3-5-small",
+      "https://huggingface.co/Qwen/Qwen3.5-9B/blob/main/config.json (surfaced via search result; page itself not fetched: huggingface.co egress-blocked)"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "huggingface.co was blocked by the egress proxy; the per-repo LICENSE file was NOT read directly. Apache-2.0 is taken from the Qwen GitHub README (read via summarizer) plus secondary articles. The Qwen3.5 README itself only says to 'find the license file released with the model weights'. The factory license gate MUST read and hash the LICENSE file in the model repo at download time.",
+      "Architecture values come from search-engine excerpts of config.json, not from the file itself.",
+      "Hybrid architecture (Gated DeltaNet linear attention interleaved with full attention every 4th layer, per config excerpt): KV-cache cost applies only to the full-attention layers but linear layers carry fixed recurrent state; the device-fit estimator must not use the dense-transformer KV formula for this family.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema_version": 2,
+  "model_family": "SmolLM3",
+  "exact_version": "SmolLM3-3B-Base",
+  "hf_repo_or_source": "HuggingFaceTB/SmolLM3-3B-Base",
+  "parameter_count": "3B (nominal)",
+  "license_id": "Apache-2.0",
+  "license_url": "https://github.com/huggingface/smollm (README states Apache 2.0); https://www.apache.org/licenses/LICENSE-2.0.txt",
+  "commercial_use": "yes",
+  "fine_tuning_permitted": "yes",
+  "derivative_adapter_permitted": "yes",
+  "redistribution_permitted": "yes",
+  "attribution_required": "yes",
+  "restrictions": [
+    "Apache-2.0 s.4: redistributors must include a copy of the License, retain copyright/attribution notices, and mark modified files with prominent change notices (verified against apache.org text).",
+    "Apache-2.0 s.6: no trademark license; do not imply endorsement by the model publisher.",
+    "Apache-2.0 s.3: patent licenses terminate if the licensee sues alleging the Work infringes a patent.",
+    "Training-data provenance of the base model is NOT covered by this registry entry; the license of the weights does not by itself settle rights in the pretraining data (not assessed)."
+  ],
+  "supported_formats": [
+    "safetensors (HF transformers; SmolLM3 documented in transformers)",
+    "GGUF/ONNX availability not verified from a primary source"
+  ],
+  "context_length": 65536,
+  "architecture": {
+    "layers": 36,
+    "kv_heads": 4,
+    "head_dim": null,
+    "hidden_size": 2048,
+    "attention": null,
+    "notes": "Context: trained at 64k, up to 128k with YaRN extrapolation per model card excerpt; NoPE layers; GQA. Values from transformers config defaults/doc excerpt."
+  },
+  "variants": [
+    {
+      "variant_id": "hf-weights",
+      "format": "safetensors",
+      "quantization": null,
+      "source_url": "https://huggingface.co/HuggingFaceTB/SmolLM3-3B-Base",
+      "size_bytes": null,
+      "sha256": null,
+      "size_evidence": "not fetched: huggingface.co was unreachable during registry research; URL derived from the repo id"
+    }
+  ],
+  "android_inference": {
+    "state": "unverified",
+    "runtime_candidates": [
+      "llama.cpp (GGUF)",
+      "ONNX Runtime GenAI"
+    ],
+    "evidence": [],
+    "notes": "No on-device measurement or primary evidence recorded; runtime candidates are inferred from supported_formats only."
+  },
+  "verification": {
+    "state": "UNVERIFIED",
+    "evidence_level": "secondary_source_only",
+    "source_urls": [
+      "https://github.com/huggingface/smollm",
+      "https://huggingface.co/HuggingFaceTB/SmolLM3-3B (search excerpt)",
+      "https://huggingface.co/docs/transformers/en/model_doc/smollm3 (search excerpt)"
+    ],
+    "verified_on": "2026-10-05",
+    "uncertainties": [
+      "Per-repo LICENSE not read directly (huggingface.co blocked); README of huggingface/smollm states Apache 2.0.",
+      "Architecture values are from documentation defaults surfaced via search; verify config.json.",
+      "Research-round method note (v1 entry): WebFetch of primary GitHub/PyPI/apache.org documents where reachable; huggingface.co, ai.google.dev, blog.google and mistral.ai were blocked by the egress proxy, so those were seen only as search-result excerpts. Registry rule: permission fields are 'yes' only where a license identifier was supported by a primary or official-card excerpt AND the license text itself was read; otherwise 'unverified'."
+    ]
+  }
+}

@@ -1,0 +1,321 @@
+{
+  "$defs": {
+    "ChunkRef": {
+      "additionalProperties": false,
+      "properties": {
+        "chunk_id": {
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "chunk_id"
+      ],
+      "title": "ChunkRef",
+      "type": "object"
+    },
+    "ExampleRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "derived_from": {
+          "items": {
+            "$ref": "#/$defs/ChunkRef"
+          },
+          "title": "Derived From",
+          "type": "array"
+        },
+        "example_id": {
+          "title": "Example Id",
+          "type": "string"
+        },
+        "generator": {
+          "$ref": "#/$defs/GeneratorInfo"
+        },
+        "group_id": {
+          "title": "Group Id",
+          "type": "string"
+        },
+        "origin": {
+          "default": "source_derived",
+          "enum": [
+            "source_derived",
+            "synthetic"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "quality_score": {
+          "title": "Quality Score",
+          "type": "number"
+        },
+        "split": {
+          "enum": [
+            "train",
+            "validation",
+            "test"
+          ],
+          "title": "Split",
+          "type": "string"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "text_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Text Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "example_id",
+        "split",
+        "group_id",
+        "task",
+        "derived_from",
+        "generator",
+        "text_sha256",
+        "quality_score"
+      ],
+      "title": "ExampleRecord",
+      "type": "object"
+    },
+    "GeneratorInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "template",
+            "llm",
+            "human"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "type"
+      ],
+      "title": "GeneratorInfo",
+      "type": "object"
+    },
+    "LeakageReport": {
+      "additionalProperties": false,
+      "properties": {
+        "dropped_example_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dropped Example Ids",
+          "type": "array"
+        },
+        "effective_group_by": {
+          "enum": [
+            "document",
+            "section"
+          ],
+          "title": "Effective Group By",
+          "type": "string"
+        },
+        "group_overlap_pairs": {
+          "title": "Group Overlap Pairs",
+          "type": "integer"
+        },
+        "near_duplicate_pairs_found": {
+          "title": "Near Duplicate Pairs Found",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "residual_cross_split_near_duplicates": {
+          "title": "Residual Cross Split Near Duplicates",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "group_overlap_pairs",
+        "near_duplicate_pairs_found",
+        "residual_cross_split_near_duplicates",
+        "effective_group_by"
+      ],
+      "title": "LeakageReport",
+      "type": "object"
+    },
+    "SplitConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "group_by": {
+          "default": "document",
+          "enum": [
+            "document",
+            "section"
+          ],
+          "title": "Group By",
+          "type": "string"
+        },
+        "near_duplicate_threshold": {
+          "default": 0.8,
+          "title": "Near Duplicate Threshold",
+          "type": "number"
+        },
+        "ratios": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Ratios",
+          "type": "object"
+        },
+        "shingle_size": {
+          "default": 5,
+          "title": "Shingle Size",
+          "type": "integer"
+        }
+      },
+      "title": "SplitConfig",
+      "type": "object"
+    },
+    "SplitInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "n_examples": {
+          "title": "N Examples",
+          "type": "integer"
+        },
+        "n_groups": {
+          "title": "N Groups",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "sha256",
+        "n_examples",
+        "n_groups"
+      ],
+      "title": "SplitInfo",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/dataset_manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "builder": {
+      "$ref": "#/$defs/GeneratorInfo"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "default": 1,
+      "title": "Dataset Version",
+      "type": "integer"
+    },
+    "examples": {
+      "items": {
+        "$ref": "#/$defs/ExampleRecord"
+      },
+      "title": "Examples",
+      "type": "array"
+    },
+    "excluded_sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Excluded Sources",
+      "type": "array"
+    },
+    "kind": {
+      "const": "dataset_manifest",
+      "default": "dataset_manifest",
+      "title": "Kind",
+      "type": "string"
+    },
+    "leakage_report": {
+      "$ref": "#/$defs/LeakageReport"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "source_manifest_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Source Manifest Hash",
+      "type": "string"
+    },
+    "source_manifest_version": {
+      "title": "Source Manifest Version",
+      "type": "integer"
+    },
+    "split_config": {
+      "$ref": "#/$defs/SplitConfig"
+    },
+    "splits": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SplitInfo"
+      },
+      "title": "Splits",
+      "type": "object"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "project_id",
+    "source_manifest_hash",
+    "source_manifest_version",
+    "seed",
+    "split_config",
+    "builder",
+    "examples",
+    "splits",
+    "leakage_report"
+  ],
+  "title": "DatasetManifest",
+  "type": "object",
+  "x-schema-version": 1
+}

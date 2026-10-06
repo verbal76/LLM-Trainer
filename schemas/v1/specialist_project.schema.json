@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "IntendedUse": {
+      "additionalProperties": false,
+      "properties": {
+        "commercial": {
+          "default": false,
+          "title": "Commercial",
+          "type": "boolean"
+        },
+        "export_formats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Export Formats",
+          "type": "array"
+        },
+        "produce_adapter": {
+          "default": true,
+          "title": "Produce Adapter",
+          "type": "boolean"
+        },
+        "redistribute_model": {
+          "default": false,
+          "title": "Redistribute Model",
+          "type": "boolean"
+        }
+      },
+      "title": "IntendedUse",
+      "type": "object"
+    },
+    "SplitConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "group_by": {
+          "default": "document",
+          "enum": [
+            "document",
+            "section"
+          ],
+          "title": "Group By",
+          "type": "string"
+        },
+        "near_duplicate_threshold": {
+          "default": 0.8,
+          "title": "Near Duplicate Threshold",
+          "type": "number"
+        },
+        "ratios": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Ratios",
+          "type": "object"
+        },
+        "shingle_size": {
+          "default": 5,
+          "title": "Shingle Size",
+          "type": "integer"
+        }
+      },
+      "title": "SplitConfig",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/specialist_project.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_model_candidates": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Base Model Candidates",
+      "type": "array"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "created_on": {
+      "title": "Created On",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "domain": {
+      "title": "Domain",
+      "type": "string"
+    },
+    "intended_use": {
+      "$ref": "#/$defs/IntendedUse"
+    },
+    "kind": {
+      "const": "specialist_project",
+      "default": "specialist_project",
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "seed": {
+      "default": 1234,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "split_config": {
+      "$ref": "#/$defs/SplitConfig"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "domain",
+    "created_on"
+  ],
+  "title": "SpecialistProject",
+  "type": "object",
+  "x-schema-version": 1
+}

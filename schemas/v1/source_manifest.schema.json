@@ -1,0 +1,389 @@
+{
+  "$defs": {
+    "ChunkRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "char_end": {
+          "title": "Char End",
+          "type": "integer"
+        },
+        "char_start": {
+          "title": "Char Start",
+          "type": "integer"
+        },
+        "chunk_id": {
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "group_id": {
+          "title": "Group Id",
+          "type": "string"
+        },
+        "page_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page End"
+        },
+        "page_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page Start"
+        },
+        "section": {
+          "title": "Section",
+          "type": "string"
+        },
+        "text_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Text Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "section",
+        "group_id",
+        "char_start",
+        "char_end",
+        "text_sha256"
+      ],
+      "title": "ChunkRecord",
+      "type": "object"
+    },
+    "RemovalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "removed_chunk_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed Chunk Ids",
+          "type": "array"
+        },
+        "removed_on": {
+          "title": "Removed On",
+          "type": "string"
+        }
+      },
+      "required": [
+        "removed_on",
+        "reason"
+      ],
+      "title": "RemovalRecord",
+      "type": "object"
+    },
+    "RightsInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "license_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License Id"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "permitted_commercial": {
+          "default": "unverified",
+          "enum": [
+            "yes",
+            "no",
+            "conditional",
+            "unverified"
+          ],
+          "title": "Permitted Commercial",
+          "type": "string"
+        },
+        "permitted_redistribution": {
+          "default": "unverified",
+          "enum": [
+            "yes",
+            "no",
+            "conditional",
+            "unverified"
+          ],
+          "title": "Permitted Redistribution",
+          "type": "string"
+        },
+        "permitted_training": {
+          "default": "unverified",
+          "enum": [
+            "yes",
+            "no",
+            "conditional",
+            "unverified"
+          ],
+          "title": "Permitted Training",
+          "type": "string"
+        },
+        "status": {
+          "default": "unverified",
+          "enum": [
+            "owned",
+            "licensed",
+            "public_domain",
+            "open_license",
+            "synthetic",
+            "unverified",
+            "restricted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "RightsInfo",
+      "type": "object"
+    },
+    "SourceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "chunks": {
+          "items": {
+            "$ref": "#/$defs/ChunkRecord"
+          },
+          "title": "Chunks",
+          "type": "array"
+        },
+        "ingested_on": {
+          "title": "Ingested On",
+          "type": "string"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "original_filename": {
+          "title": "Original Filename",
+          "type": "string"
+        },
+        "removal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemovalRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "rights": {
+          "$ref": "#/$defs/RightsInfo"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "source_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Date"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Version"
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "removed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "transformations": {
+          "items": {
+            "$ref": "#/$defs/Transformation"
+          },
+          "title": "Transformations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_id",
+        "title",
+        "origin",
+        "media_type",
+        "original_filename",
+        "size_bytes",
+        "sha256",
+        "ingested_on",
+        "rights"
+      ],
+      "title": "SourceRecord",
+      "type": "object"
+    },
+    "Transformation": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "output_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Sha256"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "performed_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Performed On"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "Transformation",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/source_manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "kind": {
+      "const": "source_manifest",
+      "default": "source_manifest",
+      "title": "Kind",
+      "type": "string"
+    },
+    "manifest_version": {
+      "default": 1,
+      "title": "Manifest Version",
+      "type": "integer"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceRecord"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "project_id"
+  ],
+  "title": "SourceManifest",
+  "type": "object",
+  "x-schema-version": 1
+}

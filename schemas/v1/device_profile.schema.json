@@ -1,0 +1,285 @@
+{
+  "$defs": {
+    "Measurement": {
+      "additionalProperties": false,
+      "description": "On-device benchmark results for ONE candidate config. Unmeasured fields stay null.",
+      "properties": {
+        "anrs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Anrs"
+        },
+        "background_kills": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Background Kills"
+        },
+        "config_id": {
+          "title": "Config Id",
+          "type": "string"
+        },
+        "crashes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Crashes"
+        },
+        "measured_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measured On"
+        },
+        "peak_ram_mb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Peak Ram Mb"
+        },
+        "sustained_minutes": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sustained Minutes"
+        },
+        "sustained_ram_mb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sustained Ram Mb"
+        },
+        "thermal_throttle_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thermal Throttle Ratio"
+        },
+        "tokens_per_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Per S"
+        },
+        "ttft_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttft Ms"
+        },
+        "ui_jank_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Jank Pct"
+        }
+      },
+      "required": [
+        "config_id"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    }
+  },
+  "$id": "https://hotatticgames.example/llmtrainer/schemas/v1/device_profile.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "background_reserve_mb": {
+      "title": "Background Reserve Mb",
+      "type": "integer"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "device_class": {
+      "title": "Device Class",
+      "type": "string"
+    },
+    "device_id": {
+      "title": "Device Id",
+      "type": "string"
+    },
+    "host_app_mb": {
+      "title": "Host App Mb",
+      "type": "integer"
+    },
+    "host_app_name": {
+      "default": "host",
+      "title": "Host App Name",
+      "type": "string"
+    },
+    "kind": {
+      "const": "device_profile",
+      "default": "device_profile",
+      "title": "Kind",
+      "type": "string"
+    },
+    "measurements": {
+      "items": {
+        "$ref": "#/$defs/Measurement"
+      },
+      "title": "Measurements",
+      "type": "array"
+    },
+    "mem_bandwidth_gbps": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mem Bandwidth Gbps"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "os": {
+      "title": "Os",
+      "type": "string"
+    },
+    "os_reserve_mb": {
+      "title": "Os Reserve Mb",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "soc": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Soc"
+    },
+    "source": {
+      "default": "declared",
+      "enum": [
+        "declared",
+        "probed"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "storage_free_mb": {
+      "title": "Storage Free Mb",
+      "type": "integer"
+    },
+    "storage_total_mb": {
+      "title": "Storage Total Mb",
+      "type": "integer"
+    },
+    "total_ram_mb": {
+      "title": "Total Ram Mb",
+      "type": "integer"
+    },
+    "typical_available_ram_mb": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Typical Available Ram Mb"
+    }
+  },
+  "required": [
+    "device_id",
+    "name",
+    "device_class",
+    "os",
+    "total_ram_mb",
+    "os_reserve_mb",
+    "background_reserve_mb",
+    "host_app_mb",
+    "storage_total_mb",
+    "storage_free_mb"
+  ],
+  "title": "DeviceProfile",
+  "type": "object",
+  "x-schema-version": 1
+}

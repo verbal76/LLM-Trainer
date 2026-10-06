@@ -1,0 +1,269 @@
+name: engine
+
+# HAG native engine (native/engine): builds the pinned+patched llama.cpp, runs the engine test suite, then proves the
+# train->patch->reload->evaluate pipeline on REAL pre-trained GGUFs downloaded from huggingface.co and sha256-verified.
+# Linux x86_64 only. These numbers are x86 CPU numbers, NOT phone numbers (see docs/v2/TRAINING_FEASIBILITY.md).
+# ACTIONS BUDGET POLICY (CLAUDE.md): this workflow is expensive and runs only on purpose: workflow_dispatch, or a push to an
+# `engine/**` branch (e.g. `git push origin HEAD:refs/heads/engine/grid-2`). Ordinary commits do not trigger it.
+on:
+  push:
+    branches: ['engine/**']   # the branch name is the deliberate gate; no path filter (it hides re-pushes of already-pushed commits)
+  workflow_dispatch:
+    inputs:
+      pretrain_epochs:
+        description: 'epochs for the tiny pre-trained fixture used by the unit/integration suite'
+        default: '2'
+
+# Runs are deliberate, so a newer run of the same ref supersedes an older one (no minutes spent on a result nobody will read).
+concurrency:
+  group: engine-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HAG_THREADS: '4'
+
+jobs:
+  # ---- cheap: build, exported-symbol check, unit tests; publishes hag_cli for every other job (about 3-5 minutes) -------------------
+  build:
+    name: build + symbols + unit tests (x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache fetched llama.cpp (pinned commit + patches)
+        uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+
+      - name: Fetch pinned llama.cpp and apply patches
+        run: native/fetch-llama.sh
+
+      - name: Configure (portable CPU build; no -march=native; pytest suite runs in its own job)
+        run: cmake -S native/engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DHAG_NATIVE=OFF -DHAG_BUILD_SHARED=ON
+
+      - name: Build
+        run: cmake --build build/engine -j "$(nproc)"
+
+      - name: Exported symbols of libhag_engine.so (only hag_* may be exported)
+        run: |
+          nm -D --defined-only build/engine/libhag_engine.so | awk '{print $3}' | grep -v '^_' | sort > exports.txt || true
+          cat exports.txt
+          if grep -vE '^hag_' exports.txt; then echo "::error::non-hag symbols exported"; exit 1; fi
+
+      - name: Unit tests (hag_unit - sha256, UTF-8, atomic writer, PRNG)
+        run: build/engine/hag_unit
+
+      - name: Upload hag_cli (used by the suite and the real-model jobs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: build/engine/hag_cli
+          retention-days: 3
+
+  # ---- tiny stand-in suite (pytest). Independent of the real-model evidence below: it does not gate those jobs -----------------
+  engine-suite:
+    name: engine pytest suite (tiny stand-in models)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python test dependencies
+        run: python -m pip install --disable-pip-version-check gguf numpy pytest
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: bin
+
+      - name: Cache fetched llama.cpp (docs are the pre-training corpus of the fixture)
+        uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+
+      - run: native/fetch-llama.sh && chmod +x bin/hag_cli
+
+      - name: Fixture identity (depends ONLY on its generator inputs)
+        id: fx
+        run: |
+          # the fixture is a function of: generator scripts, the pinned+patched llama.cpp, the trainer's algorithm version, epochs
+          echo "algo=$(grep -o 'kAlgoVersion = [0-9]*' native/engine/src/train.cpp | tr -dc '0-9')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the tiny pre-trained fixture (trained by the engine itself)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/test-tmp/pretrained5m.gguf
+            build/test-tmp/pretrained5m.gguf.heldout.txt
+          key: pretrained5m-v2-e${{ github.event.inputs.pretrain_epochs || '6' }}-a${{ steps.fx.outputs.algo }}-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/engine/tools/make_pretrained_tiny.py', 'native/engine/tools/make_tiny_gguf.py', 'native/engine/tools/apply_patch.py') }}
+
+      - name: pytest
+        env:
+          HAG_CLI: ${{ github.workspace }}/bin/hag_cli
+          HAG_TEST_TMP: ${{ github.workspace }}/build/test-tmp
+          HAG_PRETRAIN_EPOCHS: ${{ github.event.inputs.pretrain_epochs || '6' }}
+        run: |
+          set -eo pipefail
+          mkdir -p "$HAG_TEST_TMP"
+          python -m pytest -v -p no:cacheprovider native/engine/tests/test_engine.py 2>&1 | tee build/pytest.log
+
+      - name: Throughput / memory table (x86 CPU numbers)
+        if: always()
+        run: |
+          python native/engine/tools/bench_engine.py --cli bin/hag_cli --out build/test-tmp/bench --sizes 1m,5m,15m,40m,135m --threads 4 --quant || true
+
+      - name: Upload measurements and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-test-measurements
+          path: |
+            build/test-tmp/measurements.json
+            build/test-tmp/bench/**
+            build/test-tmp/work_*/train_run.log
+            build/test-tmp/work_*/requant_eval.json
+            build/test-tmp/pretrained5m.gguf.pretrain.log
+            build/pytest.log
+          if-no-files-found: warn
+
+  # ---- real pre-trained model: grid of specialization settings, every cell in MEASURE mode ------------------------------
+  # A cell fails only on engine-mechanics gates. Quality is judged once, in `real-model-summary`: the setting is chosen on the
+  # VALIDATION set only and the TEST gate (unseen entities) is applied to the selected setting. Retention (prose NLL, general
+  # probes) is printed for every cell.
+  real-grid:
+    name: grid ${{ matrix.label }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 8 cells that bracket the question: LoRA vs last-N full weights, epochs (the early-stopping search), lr, data size.
+          - {label: smollm2-lora8-lr5e-4-e3,   mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 3}
+          - {label: smollm2-lora8-lr5e-4-e5,   mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 5}
+          - {label: smollm2-lora8-lr5e-4-e10,  mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 10}
+          - {label: smollm2-lora16-lr5e-4-e5,  mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 5}
+          - {label: smollm2-lora8-lr1e-4-e10,  mode: lora, rank: 8,  layers: 0, lr: '1e-4', epochs: 10}
+          # last-N layers, full weights, much lower lr than the failed 3e-4 x 20 epochs; resume/SIGKILL proof on one cell
+          - {label: smollm2-last4-lr3e-5-e5,   mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 5,  resume: '--resume-check'}
+          - {label: smollm2-last4-lr1e-4-e3,   mode: full, rank: 0,  layers: 4, lr: '1e-4', epochs: 3}
+          # more training facts / more facts per document at the middle LoRA setting
+          - {label: smollm2-lora8-lr5e-4-e5-n192-d6, mode: lora, rank: 8, layers: 0, lr: '5e-4', epochs: 5, ntrain: 192, docfacts: 6}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python dependencies
+        run: python -m pip install --disable-pip-version-check gguf numpy
+      - uses: actions/download-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: bin
+      - name: Prose for the retention measurement (pinned llama.cpp docs)
+        uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+      - run: native/fetch-llama.sh && chmod +x bin/hag_cli
+      - name: Download model from huggingface.co and verify sha256 against the HF API (fails on mismatch)
+        run: |
+          set -eo pipefail
+          mkdir -p models out
+          python native/engine/tools/fetch_hf_model.py "bartowski/SmolLM2-135M-Instruct-GGUF" --glob '*[Ff]16*.gguf' --out models --lock out/models.lock.json
+          ls -la models
+          echo "MODEL=$(ls models/*.gguf | head -n1)" >> "$GITHUB_ENV"
+      - name: Cell - real inference, real training, reload, validation/test/retention evaluation
+        run: |
+          set -eo pipefail
+          python native/engine/tests/real_model_check.py --cli bin/hag_cli --model "$MODEL" --label "${{ matrix.label }}" --out out \
+            --prose-dir native/.deps/llama.cpp/docs --mode ${{ matrix.mode }} --lora-rank ${{ matrix.rank }} --layers ${{ matrix.layers }} \
+            --lr ${{ matrix.lr }} --epochs ${{ matrix.epochs }} --n-train ${{ matrix.ntrain || 96 }} --doc-facts ${{ matrix.docfacts || 3 }} \
+            --threads "$HAG_THREADS" --chat ${{ matrix.resume }} 2>&1 | tee out/cell_${{ matrix.label }}.log
+      - name: Upload cell result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-model-${{ matrix.label }}
+          path: |
+            out/cell_*.json
+            out/cell_*.log
+            out/models.lock.json
+            out/work_*/train_run.log
+          if-no-files-found: warn
+
+  real-model-summary:
+    name: grid summary + validation-selected test gate
+    needs: real-grid
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: real-model-smollm2-*
+          path: cells
+          merge-multiple: true
+      - name: One table for the whole grid, selection on validation, test gate on the selected setting
+        run: |
+          set -eo pipefail
+          ls cells | head -50
+          python native/engine/tools/summarize_grid.py cells --prefix smollm2 2>&1 | tee grid_summary.txt
+          { echo '```'; cat grid_summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grid-summary
+          path: grid_summary.txt
+
+  real-model-quantized:
+    name: real model - stories15m (quantized base, mechanics only)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check gguf numpy
+      - uses: actions/download-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: bin
+      - uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+      - run: native/fetch-llama.sh && chmod +x bin/hag_cli
+      - name: Download (sha256-verified)
+        run: |
+          set -eo pipefail
+          mkdir -p models out
+          python native/engine/tools/fetch_hf_model.py "ggml-org/models" --glob 'tinyllamas/stories15M-q*.gguf' --out models --lock out/models.lock.json
+          echo "MODEL=$(ls models/*.gguf | head -n1)" >> "$GITHUB_ENV"
+      - name: Quantized-base cell (F32 working copy + write-back into the base type); quality is informational here
+        run: |
+          set -eo pipefail
+          python native/engine/tests/real_model_check.py --cli bin/hag_cli --model "$MODEL" --label stories15m-q-last3 --out out \
+            --prose-dir native/.deps/llama.cpp/docs --mode full --layers 3 --lr 1e-4 --epochs 5 --threads "$HAG_THREADS" 2>&1 | tee out/cell_stories.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-model-stories15m
+          path: |
+            out/cell_*.json
+            out/cell_*.log
+            out/models.lock.json
