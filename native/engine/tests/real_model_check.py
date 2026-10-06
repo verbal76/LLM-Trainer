@@ -206,15 +206,20 @@ def main():
                 plain = {"HAG_NO_REPACK": "1"}
                 e1, e2 = sc(merged, plain), sc(a.model, plain, out)
                 gate(e1 == e2, "quantized base, plain weight layout: merged == base+patch EXACTLY (%.9f vs %.9f)" % (e1, e2))
-                # (2) default layout: the engine keeps the base weights in the repacked layout and runs patched tensors through the
-                #     generic kernel, the merged file repacks everything. Both read identical bytes; the difference is kernel
-                #     arithmetic (activation Q8 quantization / summation order). Its size is bounded by the noise floor measured on
-                #     the UNPATCHED base with the same two kernels: bound = 2 x |NLL(base, repack) - NLL(base, plain)| + 1e-6.
-                floor = abs(sc(a.model) - sc(a.model, plain))
-                d = abs(sc(merged) - sc(a.model, patch=out))
-                bound = 2 * floor + 1e-6
-                M["merge_check"] = {"kernel_noise_floor": floor, "diff": d, "bound": bound}
-                gate(d <= bound, "quantized base, default layout: |merged - base+patch| = %.2e <= 2 x kernel-noise floor %.2e + 1e-6 = %.2e" % (d, floor, bound))
+                # (2) default layout: the engine keeps base weights in the repacked layout and runs patched tensors through the generic
+                #     kernel; the merged file repacks everything. Identical bytes, different kernel arithmetic (Q8 activation
+                #     quantization, summation order). d_i = NLL_i(merged) - NLL_i(base+patch) and f_i = NLL_i(base, repack) -
+                #     NLL_i(base, plain) on the same validation lines are draws of the same kernel noise; for n = 24 equal-variance
+                #     draws P(rms(d) > 3 rms(f)) = P(F(24,24) > 9) < 1e-6 => rms(d) <= 3 rms(f) + 1e-6 is a derived bound.
+                lines = [l for l in open(val_f, encoding="utf-8").read().splitlines() if l]
+
+                def per_line(model, env=None, patch=None):
+                    return [run("score", model, "--text", l_, *thr, *(["--patch", patch] if patch else []), env=env)[1]["mean_nll"] for l_ in lines]
+                dd = [x - y for x, y in zip(per_line(merged), per_line(a.model, patch=out))]
+                ff = [x - y for x, y in zip(per_line(a.model), per_line(a.model, plain))]
+                rms = lambda v: (sum(x * x for x in v) / len(v)) ** 0.5
+                M["merge_check"] = {"rms_diff": rms(dd), "rms_kernel_noise": rms(ff), "n": len(lines)}
+                gate(rms(dd) <= 3 * rms(ff) + 1e-6, "quantized base, default layout: rms|merged - base+patch| = %.2e <= 3 x rms kernel noise %.2e (n=%d)" % (rms(dd), rms(ff), len(lines)))
             os.remove(merged)
 
     if a.resume_check:
