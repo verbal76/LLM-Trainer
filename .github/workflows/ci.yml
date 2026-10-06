@@ -1,9 +1,15 @@
 name: CI
 
+# ACTIONS BUDGET POLICY (see CLAUDE.md "GitHub Actions budget"):
+#   * every pull-request update runs ONLY the cheap JVM + Python job (core-tests); documentation-only changes run nothing;
+#   * the expensive Android jobs (APK build, 16 KB gate, emulators with real models) run on purpose only: workflow_dispatch,
+#     or a push to a `ci/**` branch, e.g.  git push origin HEAD:refs/heads/ci/android
+#   * there is deliberately NO plain `push` trigger (it duplicated the pull_request run of every commit).
 on:
-  push:
-    branches: ["**"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md", ".gitignore", "LICENSE*", "registry/artifacts/index.json"]
+  push:
+    branches: ["ci/**"]
   workflow_dispatch:
 
 concurrency:
@@ -42,6 +48,7 @@ jobs:
           git -C .. diff --exit-code -- schemas
 
   android:
+    if: github.event_name != 'pull_request'
     name: Android build + 16 KB packaging + OTA/engine wiring (emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -142,6 +149,7 @@ jobs:
           if-no-files-found: ignore
 
   native-engine:
+    if: github.event_name != 'pull_request'
     name: Native engine on emulator (${{ matrix.id }})
     runs-on: ubuntu-latest
     timeout-minutes: 120

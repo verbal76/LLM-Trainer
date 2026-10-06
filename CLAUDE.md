@@ -535,3 +535,45 @@ the strongest configuration a target device can sustain **without
 degrading normal device operation**.
 
 That is the product.
+
+------------------------------------------------------------------------
+
+## GitHub Actions Budget (STANDING OWNER DIRECTIVE)
+
+GitHub-hosted Actions minutes are shared across the owner's projects and the monthly budget is deliberately small. Treat them
+as a scarce resource, not as the default way to validate a change. Before starting any hosted workflow ask:
+
+**"Does this need GitHub Actions, or can I prove it locally?"**
+
+Use Actions only when hosted execution gives meaningful, necessary evidence.
+
+**Prove locally first:** JVM suites (`./gradlew --offline :ota-core:test :qualify:test :extract:test :studio-api:test
+:studio-core:test :engine-adapter:test`), `runtime/host-test/run.sh`, `cd factory && python -m pytest`, `scripts/catalog/tests`,
+`python -m pytest native/engine/tests` (x86 engine), YAML parse checks, shell `bash -n`. Do not use CI as a debugger.
+
+**Actions ARE appropriate for:** final validation of a candidate approaching release/OTA; checks that cannot be reproduced
+locally (Android emulator/instrumented tests, 16 KB page size, NDK cross-build, anything needing huggingface.co, which the
+authoring sandbox cannot reach); an APK/AAB the owner actually needs for physical testing or release; OTA publication with its
+safety, compatibility and signing checks; release builds and release verification.
+
+**Actions are NOT appropriate for:** building every platform after every push; Windows/desktop artifacts nobody asked for;
+Android artifacts for an OTA-only change; re-running an expensive workflow just to see if a flaky test passes; rebuilding the
+same SHA when a verified result can be reused; full release validation for docs/research/comments/bookkeeping.
+
+**How the workflows are wired (keep it this way):**
+
+| Workflow | Runs on | Cost |
+| --- | --- | --- |
+| `ci.yml` job `core-tests` | pull-request updates (not docs-only) | cheap: JVM + Python |
+| `ci.yml` jobs `android`, `native-engine` | `workflow_dispatch`, or a push to a `ci/**` branch, ON PURPOSE | expensive: APK build, 3 emulators |
+| `engine.yml` | `workflow_dispatch`, or a push to an `engine/**` branch touching `native/**`, ON PURPOSE | expensive: real-model grid |
+| `catalog-refresh.yml` | push to `catalog/refresh`, dispatch | cheap |
+| `release-apk.yml` | push to `release/v*`, dispatch | release only; keep every gate |
+| `publish-ota.yml` | push to `ota/v*`, dispatch | OTA only; keep every gate |
+
+Start an expensive run deliberately, once per candidate, e.g. `git push origin HEAD:refs/heads/ci/android`. Never add a plain
+`push: branches: ['**']` trigger. Documentation-only changes use zero minutes. Superseded runs are cancelled by `concurrency`.
+Batch fixes locally and push once instead of pushing each small step.
+
+**Release safety is NOT negotiable to save minutes:** never bypass signing verification, runtime/OTA compatibility checks,
+rollback protections or any release gate. Do not publish a release/OTA/APK as a side effect of an audit.

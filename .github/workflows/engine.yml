@@ -3,20 +3,22 @@ name: engine
 # HAG native engine (native/engine): builds the pinned+patched llama.cpp, runs the engine test suite, then proves the
 # train->patch->reload->evaluate pipeline on REAL pre-trained GGUFs downloaded from huggingface.co and sha256-verified.
 # Linux x86_64 only. These numbers are x86 CPU numbers, NOT phone numbers (see docs/v2/TRAINING_FEASIBILITY.md).
+# ACTIONS BUDGET POLICY (CLAUDE.md): this workflow is expensive and runs only on purpose: workflow_dispatch, or a push to an
+# `engine/**` branch (e.g. `git push origin HEAD:refs/heads/engine/grid-2`). Ordinary commits do not trigger it.
 on:
   push:
-    branches: ['engine/**', 'ccr-*']
+    branches: ['engine/**']
+    paths: ['native/**', '.github/workflows/engine.yml']
   workflow_dispatch:
     inputs:
       pretrain_epochs:
         description: 'epochs for the tiny pre-trained fixture used by the unit/integration suite'
         default: '2'
 
-# Never cancel a run that is already measuring: the real-model grid takes tens of minutes and is the evidence for the
-# specialization claim. A newer push queues behind it (GitHub keeps only the newest pending run).
+# Runs are deliberate, so a newer run of the same ref supersedes an older one (no minutes spent on a result nobody will read).
 concurrency:
   group: engine-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -111,25 +113,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # LoRA (base frozen) rank 8 / 16, all layers, lr 5e-4, epochs 3/5/10
+          # 8 cells that bracket the question: LoRA vs last-N full weights, epochs (the early-stopping search), lr, data size.
           - {label: smollm2-lora8-lr5e-4-e3,   mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 3}
           - {label: smollm2-lora8-lr5e-4-e5,   mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 5}
           - {label: smollm2-lora8-lr5e-4-e10,  mode: lora, rank: 8,  layers: 0, lr: '5e-4', epochs: 10}
-          - {label: smollm2-lora16-lr5e-4-e3,  mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 3}
           - {label: smollm2-lora16-lr5e-4-e5,  mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 5}
-          - {label: smollm2-lora16-lr5e-4-e10, mode: lora, rank: 16, layers: 0, lr: '5e-4', epochs: 10}
-          # LoRA, lower lr
-          - {label: smollm2-lora8-lr1e-4-e5,   mode: lora, rank: 8,  layers: 0, lr: '1e-4', epochs: 5}
           - {label: smollm2-lora8-lr1e-4-e10,  mode: lora, rank: 8,  layers: 0, lr: '1e-4', epochs: 10}
           # last-N layers, full weights, much lower lr than the failed 3e-4 x 20 epochs; resume/SIGKILL proof on one cell
-          - {label: smollm2-last4-lr3e-5-e3,   mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 3}
           - {label: smollm2-last4-lr3e-5-e5,   mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 5,  resume: '--resume-check'}
-          - {label: smollm2-last4-lr3e-5-e10,  mode: full, rank: 0,  layers: 4, lr: '3e-5', epochs: 10}
           - {label: smollm2-last4-lr1e-4-e3,   mode: full, rank: 0,  layers: 4, lr: '1e-4', epochs: 3}
-          - {label: smollm2-last4-lr1e-4-e5,   mode: full, rank: 0,  layers: 4, lr: '1e-4', epochs: 5}
           # more training facts / more facts per document at the middle LoRA setting
           - {label: smollm2-lora8-lr5e-4-e5-n192-d6, mode: lora, rank: 8, layers: 0, lr: '5e-4', epochs: 5, ntrain: 192, docfacts: 6}
-          - {label: smollm2-last4-lr3e-5-e5-n192-d6, mode: full, rank: 0, layers: 4, lr: '3e-5', epochs: 5, ntrain: 192, docfacts: 6}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -236,36 +230,3 @@ jobs:
             out/cell_*.json
             out/cell_*.log
             out/models.lock.json
-
-  android-cross-compile:
-    name: android NDK compile check (${{ matrix.abi }})
-    needs: build-and-test
-    runs-on: ubuntu-24.04
-    continue-on-error: true   # informational: the Android binding owner builds the shipped library
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        abi: [arm64-v8a, x86_64]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: native/.deps
-          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
-      - run: native/fetch-llama.sh
-      - name: Configure + build libhag_engine.so with the runner's NDK
-        run: |
-          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-$ANDROID_NDK_ROOT}}"
-          echo "NDK=$NDK"
-          cmake -S native/engine -B build/android-${{ matrix.abi }} -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-26 \
-            -DANDROID_STL=c++_static -DHAG_NATIVE=OFF -DHAG_BUILD_CLI=OFF -DHAG_BUILD_TESTS=OFF
-          cmake --build build/android-${{ matrix.abi }} -j "$(nproc)" --target hag_engine
-          ls -la build/android-${{ matrix.abi }}/libhag_engine.so
-          "$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D --defined-only build/android-${{ matrix.abi }}/libhag_engine.so | grep ' T ' | grep -c hag_ || true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: libhag_engine-${{ matrix.abi }}
-          path: build/android-${{ matrix.abi }}/libhag_engine.so
-          retention-days: 3
