@@ -7,8 +7,7 @@ name: engine
 # `engine/**` branch (e.g. `git push origin HEAD:refs/heads/engine/grid-2`). Ordinary commits do not trigger it.
 on:
   push:
-    branches: ['engine/**']
-    paths: ['native/**', '.github/workflows/engine.yml']
+    branches: ['engine/**']   # the branch name is the deliberate gate; no path filter (it hides re-pushes of already-pushed commits)
   workflow_dispatch:
     inputs:
       pretrain_epochs:

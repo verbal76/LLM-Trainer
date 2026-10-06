@@ -566,7 +566,7 @@ same SHA when a verified result can be reused; full release validation for docs/
 | --- | --- | --- |
 | `ci.yml` job `core-tests` | pull-request updates (not docs-only) | cheap: JVM + Python |
 | `ci.yml` jobs `android`, `native-engine` | `workflow_dispatch`, or a push to a `ci/**` branch, ON PURPOSE | expensive: APK build, 3 emulators |
-| `engine.yml` | `workflow_dispatch`, or a push to an `engine/**` branch touching `native/**`, ON PURPOSE | expensive: real-model grid |
+| `engine.yml` | `workflow_dispatch`, or a push to an `engine/**` branch, ON PURPOSE | expensive: real-model grid |
 | `catalog-refresh.yml` | push to `catalog/refresh`, dispatch | cheap |
 | `release-apk.yml` | push to `release/v*`, dispatch | release only; keep every gate |
 | `publish-ota.yml` | push to `ota/v*`, dispatch | OTA only; keep every gate |
