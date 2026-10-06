@@ -436,7 +436,9 @@ def test_committed_artifacts_match_sources_and_unrefreshed_have_no_hashes():
         if f.name in ("sources.json", "index.json"):
             continue
         d = json.loads(f.read_text())
-        if d["refresh_state"] in ("unrefreshed", "not_published"):   # nothing downloadable: no hash, size, revision or URL
+        if d["refresh_state"] == "refreshed" and d.get("published") is False:   # looked up, but the file is not published upstream
+            assert d["sha256"] is None and d["source"]["download_url"] is None
+        elif d["refresh_state"] == "unrefreshed":
             assert d["sha256"] is None and d["size_bytes"] is None and d["source"]["revision"] is None and d["source"]["download_url"] is None
             assert d["license"]["state"] == "UNVERIFIED"
         else:  # a CI-refreshed file must be fully populated

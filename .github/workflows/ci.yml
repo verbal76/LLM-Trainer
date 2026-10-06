@@ -36,6 +36,8 @@ jobs:
         run: |
           pip install -e ".[test]"
           python -m pytest -q
+      - name: Model catalog refresh script and committed registry (offline)
+        run: python -m pytest -q scripts/catalog/tests
       - name: Kotlin-produced training job is accepted by the real Python importer (interop)
         working-directory: factory
         run: |
