@@ -27,19 +27,13 @@ env:
   HAG_THREADS: '4'
 
 jobs:
-  build-and-test:
-    name: build + engine test suite (x86_64)
+  # ---- cheap: build, exported-symbol check, unit tests; publishes hag_cli for every other job (about 3-5 minutes) -------------------
+  build:
+    name: build + symbols + unit tests (x86_64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Python test dependencies
-        run: python -m pip install --disable-pip-version-check gguf numpy pytest
 
       - name: Cache fetched llama.cpp (pinned commit + patches)
         uses: actions/cache@v4
@@ -50,8 +44,8 @@ jobs:
       - name: Fetch pinned llama.cpp and apply patches
         run: native/fetch-llama.sh
 
-      - name: Configure (portable CPU build; no -march=native)
-        run: cmake -S native/engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DHAG_NATIVE=OFF -DHAG_BUILD_SHARED=ON -DPython3_EXECUTABLE="$(which python)"
+      - name: Configure (portable CPU build; no -march=native; pytest suite runs in its own job)
+        run: cmake -S native/engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DHAG_NATIVE=OFF -DHAG_BUILD_SHARED=ON
 
       - name: Build
         run: cmake --build build/engine -j "$(nproc)"
@@ -62,23 +56,73 @@ jobs:
           cat exports.txt
           if grep -vE '^hag_' exports.txt; then echo "::error::non-hag symbols exported"; exit 1; fi
 
+      - name: Unit tests (hag_unit - sha256, UTF-8, atomic writer, PRNG)
+        run: build/engine/hag_unit
+
+      - name: Upload hag_cli (used by the suite and the real-model jobs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: build/engine/hag_cli
+          retention-days: 3
+
+  # ---- tiny stand-in suite (pytest). Independent of the real-model evidence below: it does not gate those jobs -----------------
+  engine-suite:
+    name: engine pytest suite (tiny stand-in models)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python test dependencies
+        run: python -m pip install --disable-pip-version-check gguf numpy pytest
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hag_cli-linux-x86_64
+          path: bin
+
+      - name: Cache fetched llama.cpp (docs are the pre-training corpus of the fixture)
+        uses: actions/cache@v4
+        with:
+          path: native/.deps
+          key: llama-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/fetch-llama.sh') }}
+
+      - run: native/fetch-llama.sh && chmod +x bin/hag_cli
+
+      - name: Fixture identity (depends ONLY on its generator inputs)
+        id: fx
+        run: |
+          # the fixture is a function of: generator scripts, the pinned+patched llama.cpp, the trainer's algorithm version, epochs
+          echo "algo=$(grep -o 'kAlgoVersion = [0-9]*' native/engine/src/train.cpp | tr -dc '0-9')" >> "$GITHUB_OUTPUT"
+
       - name: Cache the tiny pre-trained fixture (trained by the engine itself)
         uses: actions/cache@v4
         with:
           path: |
-            build/engine/test-tmp/pretrained5m.gguf
-            build/engine/test-tmp/pretrained5m.gguf.heldout.txt
-          key: pretrained5m-v1-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/engine/src/**', 'native/engine/tools/make_*.py', 'native/engine/tools/apply_patch.py') }}
+            build/test-tmp/pretrained5m.gguf
+            build/test-tmp/pretrained5m.gguf.heldout.txt
+          key: pretrained5m-v2-e${{ github.event.inputs.pretrain_epochs || '6' }}-a${{ steps.fx.outputs.algo }}-${{ hashFiles('native/llama.cpp.pin', 'native/patches/*.patch', 'native/engine/tools/make_pretrained_tiny.py', 'native/engine/tools/make_tiny_gguf.py', 'native/engine/tools/apply_patch.py') }}
 
-      - name: Engine tests (hag_unit + pytest integration suite)
+      - name: pytest
         env:
+          HAG_CLI: ${{ github.workspace }}/bin/hag_cli
+          HAG_TEST_TMP: ${{ github.workspace }}/build/test-tmp
           HAG_PRETRAIN_EPOCHS: ${{ github.event.inputs.pretrain_epochs || '6' }}
-        run: ctest --test-dir build/engine --output-on-failure -V
+        run: |
+          set -eo pipefail
+          mkdir -p "$HAG_TEST_TMP"
+          python -m pytest -v -p no:cacheprovider native/engine/tests/test_engine.py 2>&1 | tee build/pytest.log
 
       - name: Throughput / memory table (x86 CPU numbers)
         if: always()
         run: |
-          python native/engine/tools/bench_engine.py --cli build/engine/hag_cli --out build/engine/test-tmp/bench --sizes 1m,5m,15m,40m,135m --threads 4 --quant || true
+          python native/engine/tools/bench_engine.py --cli bin/hag_cli --out build/test-tmp/bench --sizes 1m,5m,15m,40m,135m --threads 4 --quant || true
 
       - name: Upload measurements and logs
         if: always()
@@ -86,19 +130,13 @@ jobs:
         with:
           name: engine-test-measurements
           path: |
-            build/engine/test-tmp/measurements.json
-            build/engine/test-tmp/bench/**
-            build/engine/test-tmp/work_*/train_run.log
-            build/engine/test-tmp/work_*/requant_eval.json
-            build/engine/test-tmp/pretrained5m.gguf.pretrain.log
+            build/test-tmp/measurements.json
+            build/test-tmp/bench/**
+            build/test-tmp/work_*/train_run.log
+            build/test-tmp/work_*/requant_eval.json
+            build/test-tmp/pretrained5m.gguf.pretrain.log
+            build/pytest.log
           if-no-files-found: warn
-
-      - name: Upload hag_cli for the real-model jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: hag_cli-linux-x86_64
-          path: build/engine/hag_cli
-          retention-days: 3
 
   # ---- real pre-trained model: grid of specialization settings, every cell in MEASURE mode ------------------------------
   # A cell fails only on engine-mechanics gates. Quality is judged once, in `real-model-summary`: the setting is chosen on the
@@ -106,7 +144,7 @@ jobs:
   # probes) is printed for every cell.
   real-grid:
     name: grid ${{ matrix.label }}
-    needs: build-and-test
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -193,7 +231,7 @@ jobs:
 
   real-model-quantized:
     name: real model - stories15m (quantized base, mechanics only)
-    needs: build-and-test
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
